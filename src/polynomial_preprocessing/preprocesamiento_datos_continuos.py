@@ -1,8 +1,5 @@
 from astropy.io import fits
 from pyralysis.io import DaskMS
-import dask
-
-
 
 class PreprocesamientoDatosContinuos:
 	def __init__(self, fits_path, ms_path):

@@ -1,4 +1,4 @@
-import preprocesamiento_datos_continuos
+from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_continuos
 import numpy as np
 import cupy as cp
 import time
@@ -11,14 +11,13 @@ class ProcesamientoDatosContinuos:
 		self.num_polynomial = num_polynomial
 		self.division_sigma = division_sigma
 		self.dx = dx
+		self.image_size = image_size
 
 		if self.dx is None:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			self.dx = pixels_size
-
-		self.image_size = image_size
 
 		if self.image_size is None:
 			fits_header = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
@@ -303,7 +302,7 @@ class ProcesamientoDatosContinuos:
 		del w
 
 		# Se libera la memoria utilizada por la GPU, para evitar un sobreconsumo de
-		# esta (y se restringa el uso de Google Colab).
+		# esta.
 		mempool = cp.get_default_memory_pool()
 		mempool.free_all_blocks()
 
@@ -394,7 +393,7 @@ class ProcesamientoDatosContinuos:
 		del w
 
 		# Se libera la memoria utilizada por la GPU, para evitar un sobreconsumo de
-		# esta (y se restringa el uso de Google Colab).
+		# esta.
 		mempool = cp.get_default_memory_pool()
 		mempool.free_all_blocks()
 
@@ -431,8 +430,6 @@ class ProcesamientoDatosContinuos:
 		final_data, residual, err, P_target, P = self.gram_schmidt_and_estimation_gpu(w, P, P_target, V, D, D_target,
 																				 residual, final_data, err, s, sigma2,
 																				 max_rep=2, chunk_data=chunk_data)
-		print("Hice G-S")
-		# final_data, residual, err = gram_schmidt_and_estimation(w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep=2, chunk_data=chunk_data)
 
 		del w
 		del D
@@ -443,6 +440,7 @@ class ProcesamientoDatosContinuos:
 		return final_data, err, residual, P_target, P
 
 
-ejemplo1 = ProcesamientoDatosContinuos("dirty_images_natural_251.fits", "hd142_b9cont_self_tav.ms", 11, 0.014849768613424696)
+ejemplo1 = ProcesamientoDatosContinuos("/mnt/c/Users/steph/Desktop/proyecto_libreria/preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/dirty_images_natural_251.fits",
+    "/mnt/c/Users/steph/Desktop/proyecto_libreria/preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/hd142_b9cont_self_tav.ms", 11, 0.014849768613424696, 0.0007310213536, 251)
 
 imagen_final = ejemplo1.data_processing()

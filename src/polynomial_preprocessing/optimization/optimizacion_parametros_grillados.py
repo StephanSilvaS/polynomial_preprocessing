@@ -1,28 +1,31 @@
 import numpy as np
 import math
 import time
-import optuna
-from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_continuos, procesamiento_datos_continuos
+
+from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_a_grillar, \
+	procesamiento_datos_grillados
 
 
-class OptimizacionParametrosContinuos:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, dx = None, image_size = None):
+class OptimizacionParametrosGrillados:
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, dx, image_size):
 		self.fits_path = fits_path  # Ruta de archivo FITS
-		self.ms_path = ms_path  # Ruta de archivo MS
-		self.poly_limits = poly_limits  # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
-		self.division_limits = division_limits  # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
-		self.dx = dx  # Tamaño del Pixel
-		self.image_size = image_size  # Cantidad de pixeles para la imagen
+		self.ms_path = ms_path # Ruta de archivo MS
+		self.poly_limits = poly_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
+		self.division_limits = division_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
+		self.dx = dx # Tamaño del Pixel
+		self.image_size = image_size # Cantidad de pixeles para la imagen
 
 		if self.dx is None:
-			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
-																						 ms_path=self.ms_path)
+			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																						 ms_path=self.ms_path,
+																						image_size=self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			self.dx = pixels_size
 
 		if self.image_size is None:
-			fits_header = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
-																						 ms_path=self.ms_path)
+			fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																						 ms_path=self.ms_path,
+																						 image_size=self.image_size)
 
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
 
@@ -65,52 +68,53 @@ class OptimizacionParametrosContinuos:
 	# Para minimizar se debe colocar un signo menos
 
 	def psnr(self, img_fin):
-		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (251, 251), 42))
+		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (251, 251), 47))
 		return psnr_result  # comentary mse need to be taken outside the object
-
 
 	def optimize_parameters(self, trial):
 
-		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(self.fits_path, self.ms_path)
-
 		# Cargamos los archivos de entrada
-		header, fits_dimensions, fits_data, du, dx = interferometric_data.fits_header_info()
-		# print(header,"\n\n",fits_dimensions)
-		uvw_coords, visibilities, weights = interferometric_data.process_ms_file()
+		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
+																	PreprocesamientoDatosAGrillar(self.fits_path,
+																								  self.ms_path,
+																								  self.image_size).
+																	fits_header_info())
 
-		################# Parametros
+		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+																		  PreprocesamientoDatosAGrillar(self.fits_path,
+																										self.ms_path,
+																										self.image_size).
+																		  process_ms_file())
+
+
+		################# Parametros iniciales #############
 		M = 1  # Multiplicador de Pixeles
-		N1 =  self.image_size  # Numero de pixeles
-
+		N1 = self.image_size  # Numero de pixeles
+		N1 = N1 * M  # Numero de pixeles,  multiplicador #Version MS
 		S = trial.suggest_int("S", self.poly_limits[0], self.poly_limits[1])  # Rango del número de polinomios
 		sub_S = int(S)
 		ini = 1  # Tamano inicial
 		division = trial.suggest_loguniform("division", self.division_limits[0], self.division_limits[1])
 		dx = self.dx
-		# dx = dx * 10
-
-		u_coords = np.array(uvw_coords[:, 0])  # Primera columna
-		v_coords = np.array(uvw_coords[:, 1])  # Segunda columna
-		w_coords = np.array(uvw_coords[:, 2])  # Tercera columna
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
-		# u_ind, v_ind = np.nonzero(visibilities[0])
-		gridded_visibilities_2d = visibilities[:, 0, 0]  # (1,251,251)->(251,251)
-		gridded_weights_2d = weights[:, 0]  # (1,251,251)->(251,251)
+		u_ind, v_ind = np.nonzero(gridded_visibilities[0])
+		gridded_visibilities_2d = gridded_visibilities[0].flatten()  # (1,251,251)->(251,251)
+		gridded_weights_2d = gridded_weights[0].flatten()  # (1,251,251)->(251,251)
 
 		# Filtramos por los valores no nulos
-		# nonzero_indices = np.nonzero(gridded_weights_2d)
-		gv_sparse = gridded_visibilities_2d
-		gw_sparse = gridded_weights_2d
+		nonzero_indices = np.nonzero(gridded_weights_2d)
+		gv_sparse = gridded_visibilities_2d[nonzero_indices]
+		gw_sparse = gridded_weights_2d[nonzero_indices]
 
 		# Normalizacion de los datos
 
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
 
-		u_data = u_coords
-		v_data = v_coords
+		u_data = grid_u[u_ind]
+		v_data = grid_v[v_ind]
 
 		du = 1 / (N1 * dx)
 
@@ -129,7 +133,7 @@ class OptimizacionParametrosContinuos:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
-		max_memory = 1200000000
+		max_memory = 120000000
 		max_data = float(int(max_memory / (S * S)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -146,6 +150,7 @@ class OptimizacionParametrosContinuos:
 			chunk_data = 1
 
 		# chunk_data = 1
+		print(chunk_data)
 
 		visibilities_model = np.zeros((N1, N1), dtype=np.complex128)
 
@@ -155,11 +160,18 @@ class OptimizacionParametrosContinuos:
 		visibilities_aux = np.zeros(N1 * N1, dtype=np.complex128)
 		weights_aux = np.zeros(N1 * N1, dtype=float)
 
-		data_processing = procesamiento_datos_continuos.ProcesamientoDatosContinuos(self.fits_path, self.ms_path, S, division, self.dx, self.image_size)
-
 		start_time = time.time()
 
-		# Llamada a la función recurrence2d
+		# print(z_target.dtype)
+		# print(z_sparse.dtype)
+		# print(gw_sparse.dtype)
+		# print(gv_sparse.dtype)
+		# print(type(chunk_data))
+
+		# Obtencion de los datos de la salida con G-S
+
+		data_processing = procesamiento_datos_grillados.ProcesamientoDatosGrillados(self.fits_path, self.ms_path, S, division, self.dx, self.image_size)
+
 		try:
 			visibilities_mini, err, residual, P_target, P = (data_processing.recurrence2d
 															 (z_target.flatten(),
@@ -191,6 +203,8 @@ class OptimizacionParametrosContinuos:
 
 			print("El tiempo de ejecución fue de: ", time.time() - start_time)
 
+			####################################### GENERACION DE GRAFICOS DE SALIDA #####################################
+
 			image_model = (np.fft.fftshift
 						   (np.fft.ifft2
 							(np.fft.ifftshift
@@ -203,21 +217,3 @@ class OptimizacionParametrosContinuos:
 		except Exception as e:
 			print(f"Error en el cálculo: {e}")
 			return float("inf")  # Penalizar valores inválidos
-
-	def initialize_optimization(self, num_trials):
-		# Configuración del estudio de Optuna
-		study = optuna.create_study(direction="minimize")
-		study.optimize(self.optimize_parameters, n_trials=num_trials)
-
-		# Resultados
-		print("Mejores parámetros:", study.best_params)
-		print("Mejor valor (PSNR):", study.best_value)
-
-ejemplo1 = OptimizacionParametrosContinuos("preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/dirty_images_natural_251.fits",
-										   "preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/hd142_b9cont_self_tav.ms",
-										   [5, 21],
-										   [1e-3, 1e0],
-										   0.0007310213536,
-										   251)
-
-ejemplo1.initialize_optimization(50)

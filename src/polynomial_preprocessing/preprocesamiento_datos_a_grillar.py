@@ -8,9 +8,15 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 class PreprocesamientoDatosAGrillar:
-	def __init__(self, fits_path, ms_path):
+	def __init__(self, fits_path, ms_path, image_size = None):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
+		self.image_size = image_size
+
+		if self.image_size is None:
+			_, fits_dimensions, _, _, _ = self.fits_header_info()
+
+			self.image_size = fits_dimensions[1]
 
 	# Funcion que saca informaciopn del header de un archivo fits
 	# Entrada: path del archivo fits

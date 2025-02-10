@@ -1,4 +1,5 @@
 from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_a_grillar
+
 import cupy as cp
 import numpy as np
 import time
@@ -11,14 +12,16 @@ class ProcesamientoDatosGrillados:
 		self.num_polynomial = num_polynomial
 		self.division_sigma = division_sigma
 		self.dx = dx
+		self.image_size = image_size
 
 		if self.dx is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
-																						 ms_path=self.ms_path)
+																						 ms_path=self.ms_path,
+																						image_size = self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			self.dx = pixels_size
 
-		self.image_size = image_size
+
 
 		if self.image_size is None:
 			fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -30,14 +33,16 @@ class ProcesamientoDatosGrillados:
 
 	def data_processing(self):
 		# Cargamos los archivos de entrada
-		header, fits_dimensions, fits_cord_info, fits_properties = (preprocesamiento_datos_a_grillar.
+		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
-																								  self.ms_path,).
+																								  self.ms_path,
+																								  self.image_size).
 																	fits_header_info())
 
 		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
-																										self.ms_path,).
+																										self.ms_path,
+																										self.image_size).
 																		  process_ms_file())
 
 
@@ -475,3 +480,8 @@ class ProcesamientoDatosGrillados:
 		del z_target
 
 		return final_data, err, residual, P_target, P
+
+ejemplo1 = ProcesamientoDatosGrillados("dirty_images_natural_251.fits", "hd142_b9cont_self_tav.ms", 11, 0.014849768613424696)
+
+ejemplo1.data_processing()
+
