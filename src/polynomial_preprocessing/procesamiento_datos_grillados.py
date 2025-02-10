@@ -1,11 +1,11 @@
-import preprocesamiento_datos_continuos
-import numpy as np
+from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_a_grillar
 import cupy as cp
+import numpy as np
 import time
 import matplotlib.pyplot as plt
 
-class ProcesamientoDatosContinuos:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, dx = None, image_size = None):
+class ProcesamientoDatosGrillados:
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, dx=None, image_size=None):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
@@ -13,7 +13,7 @@ class ProcesamientoDatosContinuos:
 		self.dx = dx
 
 		if self.dx is None:
-			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
+			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			self.dx = pixels_size
@@ -21,53 +21,59 @@ class ProcesamientoDatosContinuos:
 		self.image_size = image_size
 
 		if self.image_size is None:
-			fits_header = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
-																						  ms_path=self.ms_path)
+			fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																						 ms_path=self.ms_path)
 
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
 
 			self.image_size = fits_dimensions[1]
 
-
 	def data_processing(self):
-		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
-																							   ms_path=self.ms_path)
-		header, fits_dimensions, fits_data, du, dx = interferometric_data.fits_header_info()
+		# Cargamos los archivos de entrada
+		header, fits_dimensions, fits_cord_info, fits_properties = (preprocesamiento_datos_a_grillar.
+																	PreprocesamientoDatosAGrillar(self.fits_path,
+																								  self.ms_path,).
+																	fits_header_info())
 
-		uvw_coords, visibilities, weights = interferometric_data.process_ms_file()
+		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+																		  PreprocesamientoDatosAGrillar(self.fits_path,
+																										self.ms_path,).
+																		  process_ms_file())
 
+
+		################# Parametros iniciales #############
 		M = 1  # Multiplicador de Pixeles
 		N1 = self.image_size  # Numero de pixeles
-		# N1 = 251
-		S = self.num_polynomial  # Numero de polinomios
+		N1 = N1 * M  # Numero de pixeles,  multiplicador #Version MS
+		S = self.num_polynomial # Numero de polinomios
 		sub_S = int(S)
 		ini = 1  # Tamano inicial
-		division = self.division_sigma
+		division = self.division_sigma # division_sigma
 		dx = self.dx
-
-		u_coords = np.array(uvw_coords[:, 0])  # Primera columna
-		v_coords = np.array(uvw_coords[:, 1])  # Segunda columna
-		w_coords = np.array(uvw_coords[:, 2])  # Tercera columna
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
-		# u_ind, v_ind = np.nonzero(visibilities[0])
-		gridded_visibilities_2d = visibilities[:, 0, 0]  # (1,251,251)->(251,251)
-		gridded_weights_2d = weights[:, 0]  # (1,251,251)->(251,251)
+		u_ind, v_ind = np.nonzero(gridded_visibilities[0])
+		gridded_visibilities_2d = gridded_visibilities[0].flatten()  # (1,251,251)->(251,251)
+		gridded_weights_2d = gridded_weights[0].flatten()  # (1,251,251)->(251,251)
 
 		# Filtramos por los valores no nulos
-		# nonzero_indices = np.nonzero(gridded_weights_2d)
-		gv_sparse = gridded_visibilities_2d
-		gw_sparse = gridded_weights_2d
+		nonzero_indices = np.nonzero(gridded_weights_2d)
+		gv_sparse = gridded_visibilities_2d[nonzero_indices]
+		gw_sparse = gridded_weights_2d[nonzero_indices]
 
 		# Normalizacion de los datos
 
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
 
-		u_data = u_coords
-		v_data = v_coords
+		u_data = grid_u[u_ind]
+		v_data = grid_v[v_ind]
 
+		############################################# Ploteo del Primary beam
+		plt.figure()
+		plt.plot(gv_sparse, color='r')
+		plt.title("Gridded visibilities distribution")
 		du = 1 / (N1 * dx)
 
 		umax = N1 * du / 2
@@ -75,6 +81,11 @@ class ProcesamientoDatosContinuos:
 		u_sparse = np.array(u_data) / umax
 		v_sparse = np.array(v_data) / umax
 
+		plt.figure()
+		plt.xlim(-1, 1)
+		plt.ylim(-1, 1)
+		plt.scatter(u_sparse, v_sparse, s=1)
+		plt.title("Gridded uv coverage")
 		u_target = np.reshape(np.linspace(-ini, ini, N1), (1, N1)) * np.ones(shape=(N1, 1))
 		v_target = np.reshape(np.linspace(-ini, ini, N1), (N1, 1)) * np.ones(shape=(1, N1))
 
@@ -85,7 +96,14 @@ class ProcesamientoDatosContinuos:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
-		max_memory = 1200000000
+		title = "Z exp"
+		fig = plt.figure(title)
+		plt.title(title)
+		im = plt.imshow(np.abs(z_exp))  # Usar np.abs para evitar el warning
+		plt.colorbar(im)
+		plt.show()
+
+		max_memory = 120000000
 		max_data = float(int(max_memory / (S * S)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -102,6 +120,7 @@ class ProcesamientoDatosContinuos:
 			chunk_data = 1
 
 		# chunk_data = 1
+		print(chunk_data)
 
 		visibilities_model = np.zeros((N1, N1), dtype=np.complex128)
 
@@ -113,13 +132,24 @@ class ProcesamientoDatosContinuos:
 
 		start_time = time.time()
 
-		visibilities_mini, err, residual, P_target, P = (self.recurrence2d(z_target.flatten(),
-																		   z_sparse.flatten(),
-																		   gw_sparse.flatten(),
-																		   gv_sparse.flatten(),
-																		   np.size(z_target.flatten()),
-																		   S, division,
-																		   chunk_data))
+		# print(z_target.dtype)
+		# print(z_sparse.dtype)
+		# print(gw_sparse.dtype)
+		# print(gv_sparse.dtype)
+		# print(type(chunk_data))
+
+		# Obtencion de los datos de la salida con G-S
+
+		visibilities_mini, err, residual, P_target, P = (self.recurrence2d
+														 (z_target.flatten(),
+														  z_sparse.flatten(),
+														  gw_sparse.flatten(),
+														  gv_sparse.flatten(),
+														  np.size(z_target.flatten()),
+														  S,
+														  division,
+														  chunk_data)
+														 )
 
 		visibilities_mini = np.reshape(visibilities_mini, (N1, N1))
 
@@ -128,6 +158,7 @@ class ProcesamientoDatosContinuos:
 		plt.figure()
 		plt.plot(visibilities_model.flatten(), color='g')
 
+		weights_model = np.zeros((N1, N1), dtype=float)
 
 		sigma_weights = np.divide(1.0, gw_sparse, where=gw_sparse != 0, out=np.zeros_like(gw_sparse))  # 1.0/gw_sparse
 		sigma = np.max(sigma_weights) / division
@@ -140,6 +171,8 @@ class ProcesamientoDatosContinuos:
 		weights_model = np.array(weights_mini)
 
 		print("El tiempo de ejecución fue de: ", time.time() - start_time)
+
+		####################################### GENERACION DE GRAFICOS DE SALIDA #####################################
 
 		image_model = (np.fft.fftshift
 					   (np.fft.ifft2
@@ -159,6 +192,7 @@ class ProcesamientoDatosContinuos:
 		plt.show()
 
 		return image_model
+
 
 	@staticmethod
 	def dot2x2_gpu(weights, matrix, pol, chunk_data):
@@ -264,7 +298,6 @@ class ProcesamientoDatosContinuos:
 
 		return P, P_target
 
-
 	def normalize_initial_polynomials_gpu(self, w, P, P_target, V, s, chunk_data):
 		"""
 		Normaliza los polinomios iniciales P y P_target usando CuPy para operaciones en GPU.
@@ -309,8 +342,8 @@ class ProcesamientoDatosContinuos:
 
 		return P, P_target
 
-
-	def gram_schmidt_and_estimation_gpu(self, w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep,
+	def gram_schmidt_and_estimation_gpu(self, w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2,
+										max_rep,
 										chunk_data):
 		"""
 		Realiza el proceso de ortogonalización de Gram-Schmidt y estimación usando GPU.
@@ -429,8 +462,9 @@ class ProcesamientoDatosContinuos:
 
 		# Procedimiento Gram-Schmidt en los polinomios
 		final_data, residual, err, P_target, P = self.gram_schmidt_and_estimation_gpu(w, P, P_target, V, D, D_target,
-																				 residual, final_data, err, s, sigma2,
-																				 max_rep=2, chunk_data=chunk_data)
+																					  residual, final_data, err, s,
+																					  sigma2,
+																					  max_rep=2, chunk_data=chunk_data)
 		print("Hice G-S")
 		# final_data, residual, err = gram_schmidt_and_estimation(w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep=2, chunk_data=chunk_data)
 
@@ -441,8 +475,3 @@ class ProcesamientoDatosContinuos:
 		del z_target
 
 		return final_data, err, residual, P_target, P
-
-
-ejemplo1 = ProcesamientoDatosContinuos("dirty_images_natural_251.fits", "hd142_b9cont_self_tav.ms", 11, 0.014849768613424696)
-
-imagen_final = ejemplo1.data_processing()
