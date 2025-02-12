@@ -34,8 +34,8 @@ setup(
     ],
     classifiers=[
         "Programming Language :: Python :: 3.12",
-        "License :: GNU General Public License-3.0",
-        "Operating System :: Linux"
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Operating System :: POSIX :: Linux"
     ],
     python_requires=">=3.12"
 )
