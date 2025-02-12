@@ -1,5 +1,5 @@
-cupy-cuda12x==13.3.0
-pyralysis
+cupy==13.2.0
+line_profiler
 optuna
 astropy==6.0.0
 autopep8==2.2.0

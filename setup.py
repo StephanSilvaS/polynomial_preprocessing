@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="polynomial_preprocessing",  # Nombre del paquete
-    version="1.0",  # Versión inicial
+    version="1.0.2",  # Versión inicial
     author="Stephan Silva Sanguinetti",
     author_email="stephan.silva@usach.cl",
     description="Pre-procesamiento de alto rendimiento basado en polinomios discretos ortogonales para síntesis de imágenes",
@@ -27,8 +27,7 @@ setup(
         "radio-beam==0.3.7",
         "scipy==1.13.1",
         "spectral-cube==0.6.5",
-        "cupy-cuda12x==13.3.0",
-        "pyralysis",
+        "cupy==13.2.0",
 		"optuna",
         "line_profiler"
     ],
