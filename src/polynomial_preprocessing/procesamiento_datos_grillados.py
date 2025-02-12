@@ -1,4 +1,4 @@
-from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_a_grillar
+from polynomial_preprocessing import preprocesamiento_datos_a_grillar
 
 import cupy as cp
 import numpy as np

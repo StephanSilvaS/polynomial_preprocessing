@@ -1,4 +1,4 @@
-from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_continuos
+from polynomial_preprocessing import preprocesamiento_datos_continuos
 import numpy as np
 import cupy as cp
 import time
@@ -440,7 +440,7 @@ class ProcesamientoDatosContinuos:
 		return final_data, err, residual, P_target, P
 
 
-ejemplo1 = ProcesamientoDatosContinuos("/mnt/c/Users/steph/Desktop/proyecto_libreria/preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/dirty_images_natural_251.fits",
-    "/mnt/c/Users/steph/Desktop/proyecto_libreria/preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/hd142_b9cont_self_tav.ms", 11, 0.014849768613424696, 0.0007310213536, 251)
+ejemplo1 = ProcesamientoDatosContinuos("/mnt/c/Users/steph/Documents/polynomial_preprocessing/src/polynomial_preprocessing/dirty_images_natural_251.fits",
+    "/mnt/c/Users/steph/Documents/polynomial_preprocessing/src/polynomial_preprocessing/hd142_b9cont_self_tav.ms", 11, 0.014849768613424696, 0.0007310213536, 251)
 
 imagen_final = ejemplo1.data_processing()

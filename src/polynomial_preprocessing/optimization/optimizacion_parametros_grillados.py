@@ -2,7 +2,7 @@ import numpy as np
 import math
 import time
 
-from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_a_grillar, \
+from src.polynomial_preprocessing import preprocesamiento_datos_a_grillar, \
 	procesamiento_datos_grillados
 
 

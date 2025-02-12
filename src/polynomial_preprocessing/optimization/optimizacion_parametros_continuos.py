@@ -2,7 +2,7 @@ import numpy as np
 import math
 import time
 import optuna
-from preprocessing_orthogonal_polynomials.src.polynomial_preprocessing import preprocesamiento_datos_continuos, procesamiento_datos_continuos
+from polynomial_preprocessing import preprocesamiento_datos_continuos, procesamiento_datos_continuos
 
 
 class OptimizacionParametrosContinuos:
@@ -213,8 +213,8 @@ class OptimizacionParametrosContinuos:
 		print("Mejores parámetros:", study.best_params)
 		print("Mejor valor (PSNR):", study.best_value)
 
-ejemplo1 = OptimizacionParametrosContinuos("preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/dirty_images_natural_251.fits",
-										   "preprocessing_orthogonal_polynomials/src/polynomial_preprocessing/hd142_b9cont_self_tav.ms",
+ejemplo1 = OptimizacionParametrosContinuos("polynomial_preprocessing/dirty_images_natural_251.fits",
+										   "polynomial_preprocessing/hd142_b9cont_self_tav.ms",
 										   [5, 21],
 										   [1e-3, 1e0],
 										   0.0007310213536,

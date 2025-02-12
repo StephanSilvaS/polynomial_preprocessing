@@ -9,7 +9,8 @@ setup(
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",
     url="https://github.com/StephanSilvaS/polynomial_preprocessing.git",  # URL del repositorio GitHub
-    packages=find_packages(),  # Encuentra automáticamente todos los paquetes en el directorio
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},  # Encuentra automáticamente todos los paquetes en el directorio
     install_requires=[
         "astropy==6.0.0",
         "dask==2024.8.2",
