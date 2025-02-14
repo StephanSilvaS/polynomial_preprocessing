@@ -1,9 +1,10 @@
 import numpy as np
 import math
 import time
-
-from src.polynomial_preprocessing import preprocesamiento_datos_a_grillar, \
-	procesamiento_datos_grillados
+import optuna
+import torch
+import piq
+from polynomial_preprocessing import preprocesamiento_datos_a_grillar, procesamiento_datos_grillados
 
 
 class OptimizacionParametrosGrillados:
@@ -71,6 +72,34 @@ class OptimizacionParametrosGrillados:
 		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (251, 251), 47))
 		return psnr_result  # comentary mse need to be taken outside the object
 
+	@staticmethod
+	def compute_brisque(image):
+	
+		"""
+		Calcula el score BRISQUE para una imagen dada.
+
+		Parameters:
+		- image: numpy.ndarray, la imagen a evaluar.
+
+		Returns:
+		- brisque_score: float, el score BRISQUE de la imagen.
+		"""
+		# Convertir la imagen a un tensor de PyTorch
+		image_tensor = torch.from_numpy(image).unsqueeze(0).unsqueeze(0).float()
+
+		# Calcular el score BRISQUE
+		brisque_score = piq.brisque(image_tensor, data_range=255., reduction='none')
+
+		return brisque_score.item()
+	
+	def grid_data(self):
+		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+																		  PreprocesamientoDatosAGrillar(self.fits_path,
+																										self.ms_path,
+																										self.image_size).
+																		  process_ms_file())
+		return gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v
+
 	def optimize_parameters(self, trial):
 
 		# Cargamos los archivos de entrada
@@ -80,11 +109,7 @@ class OptimizacionParametrosGrillados:
 																								  self.image_size).
 																	fits_header_info())
 
-		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
-																		  PreprocesamientoDatosAGrillar(self.fits_path,
-																										self.ms_path,
-																										self.image_size).
-																		  process_ms_file())
+		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = self.grid_data()
 
 
 		################# Parametros iniciales #############
@@ -94,7 +119,7 @@ class OptimizacionParametrosGrillados:
 		S = trial.suggest_int("S", self.poly_limits[0], self.poly_limits[1])  # Rango del número de polinomios
 		sub_S = int(S)
 		ini = 1  # Tamano inicial
-		division = trial.suggest_loguniform("division", self.division_limits[0], self.division_limits[1])
+		division = trial.suggest_float("division", self.division_limits[0], self.division_limits[1])
 		dx = self.dx
 
 		########################################## Cargar archivo de entrada Version MS
@@ -150,7 +175,7 @@ class OptimizacionParametrosGrillados:
 			chunk_data = 1
 
 		# chunk_data = 1
-		print(chunk_data)
+		#print(chunk_data)
 
 		visibilities_model = np.zeros((N1, N1), dtype=np.complex128)
 
@@ -212,8 +237,35 @@ class OptimizacionParametrosGrillados:
 			image_model = np.array(image_model.real)
 
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
+
+			# Normalizar imagen para las métricas
+			synthesized_image = image_model - image_model.min()
+			synthesized_image = (synthesized_image / synthesized_image.max()) * 255
+			synthesized_image = synthesized_image.astype(np.uint8)
+
+			# Calcular métricas
+			brisque_score = self.compute_brisque(synthesized_image)
+
+			# Minimizar ambas métricas (menores valores indican mejor calidad)
+			return brisque_score
+		
+		except Exception as e:
+			print(f"Error en el cálculo: {e}")
+			return float("inf")
+		
+		"""
 			psnr_result = self.psnr(np.real(image_model))
 			return -psnr_result  # Negativo porque Optuna minimiza la métrica
 		except Exception as e:
 			print(f"Error en el cálculo: {e}")
 			return float("inf")  # Penalizar valores inválidos
+		"""
+		
+	def initialize_optimization(self, num_trials):
+		# Configuración del estudio de Optuna
+		study = optuna.create_study(direction="minimize")
+		study.optimize(self.optimize_parameters, n_trials=num_trials)
+
+		# Resultados
+		print("Mejores parámetros:", study.best_params)
+		print("Mejor valor (PSNR):", study.best_value)

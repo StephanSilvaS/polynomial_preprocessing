@@ -2,6 +2,8 @@ import numpy as np
 import math
 import time
 import optuna
+import torch
+import piq
 from polynomial_preprocessing import preprocesamiento_datos_continuos, procesamiento_datos_continuos
 
 
@@ -18,6 +20,7 @@ class OptimizacionParametrosContinuos:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
+			print("Pixel size of FITS: ", pixels_size)
 			self.dx = pixels_size
 
 		if self.image_size is None:
@@ -25,7 +28,7 @@ class OptimizacionParametrosContinuos:
 																						 ms_path=self.ms_path)
 
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
-
+			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
 
 	@staticmethod
@@ -42,6 +45,8 @@ class OptimizacionParametrosContinuos:
 		"""
 		# Crear coordenadas de la grilla
 		rows, cols = grid_shape
+		print(rows)
+		print(cols)
 		y, x = np.ogrid[:rows, :cols]
 
 		# Calcular el centro de la grilla
@@ -67,6 +72,26 @@ class OptimizacionParametrosContinuos:
 	def psnr(self, img_fin):
 		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (251, 251), 42))
 		return psnr_result  # comentary mse need to be taken outside the object
+	
+	@staticmethod
+	def compute_brisque(image):
+	
+		"""
+		Calcula el score BRISQUE para una imagen dada.
+
+		Parameters:
+		- image: numpy.ndarray, la imagen a evaluar.
+
+		Returns:
+		- brisque_score: float, el score BRISQUE de la imagen.
+		"""
+		# Convertir la imagen a un tensor de PyTorch
+		image_tensor = torch.from_numpy(image).unsqueeze(0).unsqueeze(0).float()
+
+		# Calcular el score BRISQUE
+		brisque_score = piq.brisque(image_tensor, data_range=255., reduction='none')
+
+		return brisque_score.item()
 
 
 	def optimize_parameters(self, trial):
@@ -85,7 +110,7 @@ class OptimizacionParametrosContinuos:
 		S = trial.suggest_int("S", self.poly_limits[0], self.poly_limits[1])  # Rango del número de polinomios
 		sub_S = int(S)
 		ini = 1  # Tamano inicial
-		division = trial.suggest_loguniform("division", self.division_limits[0], self.division_limits[1])
+		division = trial.suggest_float("division", self.division_limits[0], self.division_limits[1])
 		dx = self.dx
 		# dx = dx * 10
 
@@ -198,11 +223,30 @@ class OptimizacionParametrosContinuos:
 			image_model = np.array(image_model.real)
 
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
+
+			# Normalizar imagen para las métricas
+			synthesized_image = image_model - image_model.min()
+			synthesized_image = (synthesized_image / synthesized_image.max()) * 255
+			synthesized_image = synthesized_image.astype(np.uint8)
+
+			# Calcular métricas
+			brisque_score = self.compute_brisque(synthesized_image)
+
+			# Minimizar ambas métricas (menores valores indican mejor calidad)
+			return brisque_score
+		
+		except Exception as e:
+			print(f"Error en el cálculo: {e}")
+			return float("inf")
+		
+		"""
 			psnr_result = self.psnr(np.real(image_model))
 			return -psnr_result  # Negativo porque Optuna minimiza la métrica
 		except Exception as e:
 			print(f"Error en el cálculo: {e}")
 			return float("inf")  # Penalizar valores inválidos
+		"""
+			
 
 	def initialize_optimization(self, num_trials):
 		# Configuración del estudio de Optuna
@@ -211,13 +255,4 @@ class OptimizacionParametrosContinuos:
 
 		# Resultados
 		print("Mejores parámetros:", study.best_params)
-		print("Mejor valor (PSNR):", study.best_value)
-
-ejemplo1 = OptimizacionParametrosContinuos("polynomial_preprocessing/dirty_images_natural_251.fits",
-										   "polynomial_preprocessing/hd142_b9cont_self_tav.ms",
-										   [5, 21],
-										   [1e-3, 1e0],
-										   0.0007310213536,
-										   251)
-
-ejemplo1.initialize_optimization(50)
+		print("Mejor valor (BRISQUE):", study.best_value)

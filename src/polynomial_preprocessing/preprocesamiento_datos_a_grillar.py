@@ -59,7 +59,7 @@ class PreprocesamientoDatosAGrillar:
 
 		_, fits_dimensions, _, _, _ = self.fits_header_info()
 
-		imsize = fits_dimensions[1]
+		imsize = self.image_size
 		dx = dataset.theo_resolution / 7
 
 		pb = dataset.antenna.primary_beam

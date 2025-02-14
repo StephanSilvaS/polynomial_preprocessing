@@ -17,6 +17,7 @@ class ProcesamientoDatosContinuos:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
+			print("Pixel size of FITS: ", pixels_size)
 			self.dx = pixels_size
 
 		if self.image_size is None:
@@ -24,7 +25,7 @@ class ProcesamientoDatosContinuos:
 																						  ms_path=self.ms_path)
 
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
-
+			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
 
 
@@ -157,7 +158,7 @@ class ProcesamientoDatosContinuos:
 
 		plt.show()
 
-		return image_model
+		return image_model, weights_model
 
 	@staticmethod
 	def dot2x2_gpu(weights, matrix, pol, chunk_data):
@@ -438,9 +439,3 @@ class ProcesamientoDatosContinuos:
 		del z_target
 
 		return final_data, err, residual, P_target, P
-
-
-ejemplo1 = ProcesamientoDatosContinuos("/mnt/c/Users/steph/Documents/polynomial_preprocessing/src/polynomial_preprocessing/dirty_images_natural_251.fits",
-    "/mnt/c/Users/steph/Documents/polynomial_preprocessing/src/polynomial_preprocessing/hd142_b9cont_self_tav.ms", 11, 0.014849768613424696, 0.0007310213536, 251)
-
-imagen_final = ejemplo1.data_processing()

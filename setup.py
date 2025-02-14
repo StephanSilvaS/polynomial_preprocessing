@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="polynomial_preprocessing",  # Nombre del paquete
-    version="1.0.2",  # Versión inicial
+    version="1.0.0",  # Versión inicial
     author="Stephan Silva Sanguinetti",
     author_email="stephan.silva@usach.cl",
     description="Pre-procesamiento de alto rendimiento basado en polinomios discretos ortogonales para síntesis de imágenes",
@@ -36,5 +36,6 @@ setup(
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
         "Operating System :: POSIX :: Linux"
     ],
-    python_requires=">=3.12"
+    python_requires=">=3.12",
+    include_package_data=True
 )

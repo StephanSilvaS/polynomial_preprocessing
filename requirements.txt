@@ -1,6 +1,6 @@
 cupy==13.2.0
-line_profiler
 optuna
+line_profiler
 astropy==6.0.0
 autopep8==2.2.0
 dafits==1.1.0

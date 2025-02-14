@@ -32,18 +32,29 @@ class ProcesamientoDatosGrillados:
 			self.image_size = fits_dimensions[1]
 
 	def data_processing(self):
-		# Cargamos los archivos de entrada
-		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
-																	PreprocesamientoDatosAGrillar(self.fits_path,
-																								  self.ms_path,
-																								  self.image_size).
-																	fits_header_info())
+		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = self.grid_data
+		image_model, weights_model = self.gridded_data_processing(gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v)
+		return image_model, weights_model
+
+
+	def grid_data(self):
 
 		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,
 																										self.image_size).
 																		  process_ms_file())
+		
+		return gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v
+
+
+	def gridded_data_processing(self, gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v):
+		# Cargamos los archivos de entrada
+		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
+																	PreprocesamientoDatosAGrillar(self.fits_path,
+																								  self.ms_path,
+																								  self.image_size).
+																	fits_header_info())
 
 
 		################# Parametros iniciales #############
@@ -101,13 +112,15 @@ class ProcesamientoDatosGrillados:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
+		"""
 		title = "Z exp"
 		fig = plt.figure(title)
 		plt.title(title)
 		im = plt.imshow(np.abs(z_exp))  # Usar np.abs para evitar el warning
 		plt.colorbar(im)
 		plt.show()
-
+		"""
+		
 		max_memory = 120000000
 		max_data = float(int(max_memory / (S * S)))
 
@@ -160,9 +173,11 @@ class ProcesamientoDatosGrillados:
 
 		visibilities_model = np.array(visibilities_mini)
 
+		"""
 		plt.figure()
 		plt.plot(visibilities_model.flatten(), color='g')
-
+		"""
+		
 		weights_model = np.zeros((N1, N1), dtype=float)
 
 		sigma_weights = np.divide(1.0, gw_sparse, where=gw_sparse != 0, out=np.zeros_like(gw_sparse))  # 1.0/gw_sparse
@@ -196,7 +211,7 @@ class ProcesamientoDatosGrillados:
 
 		plt.show()
 
-		return image_model
+		return image_model, weights_model
 
 
 	@staticmethod
@@ -480,8 +495,4 @@ class ProcesamientoDatosGrillados:
 		del z_target
 
 		return final_data, err, residual, P_target, P
-
-ejemplo1 = ProcesamientoDatosGrillados("dirty_images_natural_251.fits", "hd142_b9cont_self_tav.ms", 11, 0.014849768613424696)
-
-ejemplo1.data_processing()
 
