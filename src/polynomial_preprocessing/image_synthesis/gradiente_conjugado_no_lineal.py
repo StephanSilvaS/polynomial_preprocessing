@@ -38,11 +38,13 @@ class GradienteConjugadoNoLineal:
 
 	def conjugate_gradient(self):
 
+		w_o = self.weights/self.norm(self.weights.flatten(), self.visibilities.flatten())
+
 		Im = np.zeros_like(self.visibilities, dtype=float)
 
 		Vm = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(Im)))
 
-		grad = -1 * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.weights * (self.visibilities - Vm))))
+		grad = -1 * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(w_o * (self.visibilities - Vm))))
 
 		# print("Max grad:",np.max(grad))
 		# title="grad"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(grad))
@@ -65,7 +67,7 @@ class GradienteConjugadoNoLineal:
 			else:
 				s = diff + beta * s
 
-			a = optimize.brent(self.f_alpha, args=(self.visibilities, Im, self.weights, s))
+			a = optimize.brent(self.f_alpha, args=(self.visibilities, Im, w_o, s))
 
 			Im = Im + a * s
 
@@ -77,7 +79,7 @@ class GradienteConjugadoNoLineal:
 
 			Vm = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(Im)))
 
-			grad = -1 * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.weights * (self.visibilities - Vm))))
+			grad = -1 * np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(w_o * (self.visibilities - Vm))))
 
 			grad[np.isinf(grad) == True] = 0
 			grad[np.isnan(grad) == True] = 0

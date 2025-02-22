@@ -21,6 +21,7 @@ class OptimizacionParametrosGrillados:
 																						 ms_path=self.ms_path,
 																						image_size=self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
+			print("Pixel size of FITS: ", pixels_size)
 			self.dx = pixels_size
 
 		if self.image_size is None:
@@ -29,7 +30,7 @@ class OptimizacionParametrosGrillados:
 																						 image_size=self.image_size)
 
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
-
+			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
 
 	@staticmethod
@@ -93,12 +94,12 @@ class OptimizacionParametrosGrillados:
 		return brisque_score.item()
 	
 	def grid_data(self):
-		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,
 																										self.image_size).
 																		  process_ms_file())
-		return gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v
+		return gridded_visibilities, gridded_weights, dx, grid_u, grid_v
 
 	def optimize_parameters(self, trial):
 
@@ -109,7 +110,7 @@ class OptimizacionParametrosGrillados:
 																								  self.image_size).
 																	fits_header_info())
 
-		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = self.grid_data()
+		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = self.grid_data()
 
 
 		################# Parametros iniciales #############
@@ -268,4 +269,4 @@ class OptimizacionParametrosGrillados:
 
 		# Resultados
 		print("Mejores parámetros:", study.best_params)
-		print("Mejor valor (PSNR):", study.best_value)
+		print("Mejor valor (BRISQUE):", study.best_value)

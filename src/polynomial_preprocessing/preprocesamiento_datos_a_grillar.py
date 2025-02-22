@@ -8,10 +8,11 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 class PreprocesamientoDatosAGrillar:
-	def __init__(self, fits_path, ms_path, image_size = None):
+	def __init__(self, fits_path, ms_path, image_size = None, pixel_size = None):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.image_size = image_size
+		self.pixel_size = pixel_size
 
 		if self.image_size is None:
 			_, fits_dimensions, _, _, _ = self.fits_header_info()
@@ -60,7 +61,12 @@ class PreprocesamientoDatosAGrillar:
 		_, fits_dimensions, _, _, _ = self.fits_header_info()
 
 		imsize = self.image_size
-		dx = dataset.theo_resolution / 7
+
+		if self.pixel_size == None:
+			dx = dataset.theo_resolution / 7
+
+		else:
+			dx = self.pixel_size / 7
 
 		pb = dataset.antenna.primary_beam
 		pb.cellsize = dx
@@ -122,10 +128,6 @@ class PreprocesamientoDatosAGrillar:
 			*[dirty_mapper.uvgridded_visibilities, dirty_mapper.uvgridded_weights]
 		)
 
-		# UV continuas
-		for i, ms in enumerate(dataset.ms_list):
-			uvw = ms.visibilities.uvw.data
-
 		# UV grilladas
 		m, n = dirty_image.shape
 		du = 1 / (n * dx)
@@ -133,4 +135,4 @@ class PreprocesamientoDatosAGrillar:
 		u = np.fft.fftshift(np.fft.fftfreq(n)) * n * du
 		v = np.fft.fftshift(np.fft.fftfreq(m)) * m * dv
 
-		return gridded_visibilities, gridded_weights, dx, uvw.compute(), u, v
+		return gridded_visibilities, gridded_weights, dx, u, v

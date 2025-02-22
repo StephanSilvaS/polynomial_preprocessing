@@ -19,6 +19,7 @@ class ProcesamientoDatosGrillados:
 																						 ms_path=self.ms_path,
 																						image_size = self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
+			print("Pixel size of FITS: ", pixels_size)
 			self.dx = pixels_size
 
 
@@ -28,27 +29,27 @@ class ProcesamientoDatosGrillados:
 																						 ms_path=self.ms_path)
 
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
-
+			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
 
 	def data_processing(self):
-		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = self.grid_data
-		image_model, weights_model = self.gridded_data_processing(gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v)
+		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = self.grid_data()
+		image_model, weights_model = self.gridded_data_processing(gridded_visibilities, gridded_weights, dx, grid_u, grid_v)
 		return image_model, weights_model
 
 
 	def grid_data(self):
 
-		gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,
 																										self.image_size).
 																		  process_ms_file())
 		
-		return gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v
+		return gridded_visibilities, gridded_weights, dx,  grid_u, grid_v
 
 
-	def gridded_data_processing(self, gridded_visibilities, gridded_weights, dx, uvw, grid_u, grid_v):
+	def gridded_data_processing(self, gridded_visibilities, gridded_weights, dx, grid_u, grid_v):
 		# Cargamos los archivos de entrada
 		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,

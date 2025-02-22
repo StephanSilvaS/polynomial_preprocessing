@@ -47,12 +47,19 @@ class ProcesamientoDatosContinuos:
 
 		u_coords = np.array(uvw_coords[:, 0])  # Primera columna
 		v_coords = np.array(uvw_coords[:, 1])  # Segunda columna
-		w_coords = np.array(uvw_coords[:, 2])  # Tercera columna
+		w_coords = np.array(uvw_coords[:, 2])  # Tercera columna (Para trabajo a futuro esta coord)
+
+		print("visbilidades dim. MS: ", visibilities.shape)
+
+
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
 		# u_ind, v_ind = np.nonzero(visibilities[0])
 		gridded_visibilities_2d = visibilities[:, 0, 0]  # (1,251,251)->(251,251)
+
+		print("visibilidades gridd. MS: ", gridded_visibilities_2d.shape)
+
 		gridded_weights_2d = weights[:, 0]  # (1,251,251)->(251,251)
 
 		# Filtramos por los valores no nulos
@@ -75,8 +82,17 @@ class ProcesamientoDatosContinuos:
 		u_sparse = np.array(u_data) / umax
 		v_sparse = np.array(v_data) / umax
 
+		plt.figure()
+		plt.xlim(-1, 1)
+		plt.ylim(-1, 1)
+		plt.scatter(u_sparse, v_sparse, s = 1)
+		plt.title("Gridded uv coverage")
+
 		u_target = np.reshape(np.linspace(-ini, ini, N1), (1, N1)) * np.ones(shape=(N1, 1))
 		v_target = np.reshape(np.linspace(-ini, ini, N1), (N1, 1)) * np.ones(shape=(1, N1))
+
+		print("u_target: ", u_target.shape)
+		print("v_target: ", v_target.shape)
 
 		z_target = u_target + 1j * v_target
 		z_sparse = u_sparse + 1j * v_sparse
@@ -125,6 +141,10 @@ class ProcesamientoDatosContinuos:
 
 		visibilities_model = np.array(visibilities_mini)
 
+		"""
+		plt.figure()
+		plt.plot(visibilities_model.flatten(), color='g')
+		"""
 		plt.figure()
 		plt.plot(visibilities_model.flatten(), color='g')
 
@@ -158,7 +178,7 @@ class ProcesamientoDatosContinuos:
 
 		plt.show()
 
-		return image_model, weights_model
+		return image_model, weights_model, visibilities_model, u_target, v_target
 
 	@staticmethod
 	def dot2x2_gpu(weights, matrix, pol, chunk_data):
