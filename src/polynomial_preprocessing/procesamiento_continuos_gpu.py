@@ -4,13 +4,9 @@ import cupy as cp
 import time
 import matplotlib.pyplot as plt
 from astropy.io import fits
-from numba import jit, complex128, float64, int32, prange
 
-
-
-
-class ProcesamientoDatosContinuos:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, verbose = True):
+class ProcesamientoDatosContinuosGPU:
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, verbose = True, num_gpus = 4):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
@@ -18,7 +14,8 @@ class ProcesamientoDatosContinuos:
 		self.pixel_size = pixel_size
 		self.image_size = image_size
 		self.verbose = verbose
-
+		self.num_gpus = num_gpus
+	
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
@@ -34,8 +31,18 @@ class ProcesamientoDatosContinuos:
 			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
 
+	@staticmethod
+	def enable_peer_access(num_gpus):
+		for i in range(num_gpus):
+			with cp.cuda.Device(i):
+				for j in range(num_gpus):
+					if i != j:
+						cp.cuda.runtime.deviceEnablePeerAccess(j)
 
 	def data_processing(self):
+
+		self.enable_peer_access(self.num_gpus)
+
 		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
 		fits_header, _, _, du, pixel_size = interferometric_data.fits_header_info()
@@ -111,7 +118,7 @@ class ProcesamientoDatosContinuos:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
-		max_memory = 15059545088
+		max_memory = 1200000000
 		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -215,7 +222,7 @@ class ProcesamientoDatosContinuos:
 
 			# Guardar el tiempo de ejecución en un archivo de texto
 			with open(TITLE_VISIBILITIES_RESULT , "w") as file:
-				file.write(f"Tiempo de ejecucion: {execution_time:.2f} segundos\n")
+				file.write(f"Tiempo de ejecución: {execution_time:.2f} segundos\n")
 
 			# Generar nombres de archivos
 			TITLE_VISIBILITIES_RESULT = self.generate_filename(TITLE_1, 
@@ -256,181 +263,51 @@ class ProcesamientoDatosContinuos:
 		base_title = f"num_polynomial_{num_polynomials}_division_sigma_{division}_pixel_size_{pixel_size}_image_size_{num_pixels}_{num_pixels}_{object_name}"
 		return f"{prefix}{base_title}.{extension}"
 
-	"""
 	@staticmethod
-	def dot2x2_gpu(weights, matrix, pol, chunk_data):
-		N1, N2, n = matrix.shape
-		sub_size = (N1 // chunk_data) + 1
-		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)  # Usar complex64 en lugar de complex128
-
-		for chunk1 in range(sub_size):
-			for chunk2 in range(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					N3 = min(chunk_data // 2, N1 - chunk1 * chunk_data)
-					N4 = min(chunk_data // 2, N2 - chunk2 * chunk_data)
-
-					if N3 <= 0 or N4 <= 0:
-						continue
-
-					sub_matrix = matrix[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-										chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :]
-
-					sub_weights = cp.broadcast_to(weights, sub_matrix.shape)
-					sub_pol = cp.broadcast_to(cp.conjugate(pol), sub_matrix.shape)
-
-					subsum = cp.sum(sub_matrix * sub_weights * sub_pol, axis=2, keepdims=True)
-
-					final_dot[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-								chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :] = subsum
-
-					# Liberar memoria después de cada iteración
-					del sub_matrix, sub_weights, sub_pol, subsum
-					cp.get_default_memory_pool().free_all_blocks()
-
-		return final_dot
-
-	"""
-
-	@staticmethod
-	def dot2x2_gpu_original(weights, matrix, pol, chunk_data):
+	def dot2x2_gpu(weights, matrix, pol, chunk_data, gpu_id):
 		"""
-		Versión optimizada de dot2x2_gpu para reducir el uso de memoria en GPU y evitar errores de 'Out of Memory'.
+		Calcula el producto punto ponderado de una matriz y un polinomio en GPU.
 
 		Parámetros:
-		- weights: CuPy array 1D de pesos complejos.
-		- matrix: CuPy array 3D de datos complejos.
-		- pol: CuPy array 1D de polinomios conjugados.
-		- chunk_data: Tamaño del bloque de datos a procesar.
+		- weights: CuPy array de pesos complejos (1D).
+		- matrix: CuPy array de polinomios complejos (3D).
+		- pol: CuPy array de polinomio de referencia (1D).
+		- chunk_data: Tamaño de bloque para procesamiento por partes.
 
 		Retorna:
-		- final_dot: CuPy array 3D con los resultados.
+		- final_dot: Producto punto ponderado (3D CuPy array de forma (N1, N2, 1)).
 		"""
-		N1, N2, n = matrix.shape
-		sub_size = max(1, (N1 // chunk_data) + 1)
+		with cp.cuda.Device(gpu_id):
+			N1, N2, n = matrix.shape
+			sub_size = (N1 // chunk_data) + 1
+			final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)
 
-		 # Obtener la memoria total y usada en la GPU
-		total_mem = cp.cuda.Device(0).mem_info[1]  # Memoria total de la GPU 0 en bytes
-		used_mem = total_mem - cp.cuda.Device(0).mem_info[0]  # Memoria ya utilizada
+			for chunk1 in range(sub_size):
+				for chunk2 in range(sub_size):
+					if chunk1 + chunk2 < sub_size:
+						N3 = min(chunk_data, N1 - chunk1 * chunk_data)
+						N4 = min(chunk_data, N2 - chunk2 * chunk_data)
 
-		# Calcular memoria disponible para el cálculo
-		available_mem = total_mem - used_mem  # Memoria real disponible
-		mem_usage_factor = 0.95  # Ahora utilizamos el 90% de la memoria libre
+						if N3 <= 0 or N4 <= 0:
+							continue  
 
-		# Ajustar chunk_data usando memoria real disponible
-		chunk_data = max(1, min(chunk_data, int(mem_usage_factor * available_mem)))
-		"""
-		# Ajuste más agresivo de chunk_data
-		free_mem = cp.cuda.Device(0).mem_info[0]  # Memoria libre en bytes
-		mem_usage_factor = 0.8  # Usar hasta el 80% de la memoria disponible
-		chunk_data = max(1, min(chunk_data, int(mem_usage_factor * free_mem)))
-		"""
-		
-
-
-		# Inicializar matriz de salida en menor precisión para reducir uso de memoria
-		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)
-
-		# Procesamiento por fragmentos para evitar OOM
-		mini_chunk = max(1, chunk_data)
-
-		for chunk1 in range(sub_size):
-			for chunk2 in range(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					N3 = min(chunk_data, N1 - chunk1 * chunk_data)
-					N4 = min(chunk_data, N2 - chunk2 * chunk_data)
-
-					if N3 <= 0 or N4 <= 0:
-						continue
-
-					# Procesar en bloques más pequeños dentro de la GPU
-					for mini_c in range(0, n, mini_chunk):
-						mini_end = min(mini_c + mini_chunk, n)
-
-						# Extraer submatrices de forma más eficiente
 						sub_matrix = matrix[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-											chunk2 * chunk_data:(chunk2 + 1) * chunk_data, mini_c:mini_end]
+											chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :]
 
-						sub_weights = cp.broadcast_to(weights[mini_c:mini_end], sub_matrix.shape).astype(cp.complex128)
-						sub_pol = cp.broadcast_to(cp.conjugate(pol[mini_c:mini_end]), sub_matrix.shape).astype(cp.complex128)
+						sub_weights = cp.broadcast_to(weights, sub_matrix.shape)
+						sub_pol = cp.broadcast_to(cp.conjugate(pol), sub_matrix.shape)
 
-						# Producto de matrices en GPU con bloques pequeños
 						subsum = cp.sum(sub_matrix * sub_weights * sub_pol, axis=2, keepdims=True)
 
-						# Asignar a la matriz final de resultados
 						final_dot[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-								chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :] += subsum
+								  chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :] = subsum
 
-						# Liberar memoria intermedia
-						del sub_matrix, sub_weights, sub_pol, subsum
 						cp.get_default_memory_pool().free_all_blocks()
 
-		# Liberar memoria global al final
-		cp.get_default_memory_pool().free_all_blocks()
-		
-		return final_dot
-	
-	@staticmethod
-	def dot2x2_gpu_optimized(weights, matrix, pol, chunk_data):
-		"""
-		Versión optimizada de dot2x2_gpu para reducir el uso de memoria en GPU y mejorar el rendimiento.
-
-		Parámetros:
-		- weights: CuPy array 1D de pesos complejos.
-		- matrix: CuPy array 3D de datos complejos.
-		- pol: CuPy array 1D de polinomios conjugados.
-		- chunk_data: Tamaño del bloque de datos a procesar.
-
-		Retorna:
-		- final_dot: CuPy array 3D con los resultados.
-		"""
-		N1, N2, n = matrix.shape
-		sub_size = max(1, (N1 // chunk_data) + 1)
-
-		# Obtener la memoria total y usada en la GPU
-		total_mem = cp.cuda.Device(0).mem_info[1]  # Memoria total de la GPU 0 en bytes
-		used_mem = total_mem - cp.cuda.Device(0).mem_info[0]  # Memoria ya utilizada
-
-		# Calcular memoria disponible para el cálculo
-		available_mem = total_mem - used_mem  # Memoria real disponible
-		mem_usage_factor = 1  # Usar hasta el 90% de la memoria disponible
-
-		# Ajustar chunk_data usando memoria real disponible
-		chunk_data = max(1, min(chunk_data, int(mem_usage_factor * available_mem)))
-
-		# Inicializar matriz de salida en menor precisión para reducir uso de memoria
-		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)  # Usar complex64
-
-		# Procesamiento por fragmentos para evitar OOM
-		for chunk1 in range(sub_size):
-			for chunk2 in range(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					N3 = min(chunk_data, N1 - chunk1 * chunk_data)
-					N4 = min(chunk_data, N2 - chunk2 * chunk_data)
-
-					if N3 <= 0 or N4 <= 0:
-						continue
-
-					# Extraer submatrices de forma más eficiente
-					sub_matrix = matrix[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-										chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :]
-
-					# Usar cp.einsum para multiplicación y suma eficiente
-					subsum = cp.einsum('ijk,k->ij', sub_matrix * weights, cp.conjugate(pol))
-					final_dot[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-							chunk2 * chunk_data:(chunk2 + 1) * chunk_data, 0] += subsum
-
-					# Liberar memoria intermedia
-					del sub_matrix, subsum
-					cp.get_default_memory_pool().free_all_blocks()
-
-		# Liberar memoria global al final
-		cp.get_default_memory_pool().free_all_blocks()
-
-		return final_dot
-
+			return final_dot
 
 	@staticmethod
-	def norm2x2_gpu(weights, matrix, chunk_data):
+	def norm2x2_gpu(weights, matrix, chunk_data, gpu_id):
 		"""
 		Calcula la norma ponderada de una matriz en GPU.
 
@@ -442,65 +319,36 @@ class ProcesamientoDatosContinuos:
 		Retorna:
 		- final_norm: Norma ponderada (3D CuPy array de forma (N1, N2, 1)).
 		"""
-		# Dimensiones de la matriz
-		N1, N2, n = matrix.shape
-		sub_size = (N1 // chunk_data) + 1
-		final_norm = cp.zeros((N1, N2, 1), dtype=cp.complex128)
+		with cp.cuda.Device(gpu_id):
+			N1, N2, n = matrix.shape
+			sub_size = (N1 // chunk_data) + 1
+			final_norm = cp.zeros((N1, N2, 1), dtype=cp.complex128)
 
-		for chunk1 in range(sub_size):
-			for chunk2 in range(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					# Tamaños de bloque, asegurando límites
-					N3 = min(chunk_data, N1 - chunk1 * chunk_data)
-					N4 = min(chunk_data, N2 - chunk2 * chunk_data)
+			for chunk1 in range(sub_size):
+				for chunk2 in range(sub_size):
+					if chunk1 + chunk2 < sub_size:
+						N3 = min(chunk_data, N1 - chunk1 * chunk_data)
+						N4 = min(chunk_data, N2 - chunk2 * chunk_data)
 
-					# Submatriz en el bloque actual
-					sub_m = matrix[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-							chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :]
+						sub_m = matrix[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
+									   chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :]
 
-					# Aplicar los pesos sobre la submatriz y calcular la norma ponderada
-					sub_weights = cp.broadcast_to(weights, sub_m.shape)
-					subsum = sub_weights * cp.abs(sub_m) ** 2
-					subsum = cp.sum(subsum, axis=2)
-					subsum = cp.sqrt(subsum)
-					subsum = subsum.reshape((N3, N4, 1))
+						sub_weights = cp.broadcast_to(weights, sub_m.shape)
+						subsum = sub_weights * cp.abs(sub_m) ** 2
+						subsum = cp.sum(subsum, axis=2)
+						subsum = cp.sqrt(subsum)
+						subsum = subsum.reshape((N3, N4, 1))
 
-					# Asignar el resultado al bloque correspondiente en la matriz final
-					final_norm[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-					chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :] = subsum
+						final_norm[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
+								   chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :] = subsum
 
-		return final_norm
-	
-	@jit(complex128[:, :, :](float64[:], complex128[:, :, :], complex128[:], int32), parallel=True)
-	def dot2x2(weights, matrix, pol, chunk_data):
-		N1, N2, n = matrix.shape
-		sub_size = (N1 // chunk_data) + 1
-		final_dot = np.zeros((N1, N2, 1), dtype=np.complex128)
+						cp.get_default_memory_pool().free_all_blocks()
 
-		# Uso de prange para paralelizar
-		for chunk1 in prange(sub_size):
-			for chunk2 in range(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					# Operamos directamente sobre los subarrays relevantes sin crear sub_m
-					N3 = min(chunk_data, N1 - chunk1 * chunk_data)
-					N4 = min(chunk_data, N2 - chunk2 * chunk_data)
-					subsum = np.zeros((N3, N4, 1), dtype=np.complex128)
+			return final_norm
 
-					for i in range(N3):
-						for j in range(N4):
-							# Calcular el producto directamente sin crear w
-							for k in range(n):
-								subsum[i, j, 0] += matrix[chunk1*chunk_data + i, chunk2*chunk_data + j, k] * weights[k] * np.conjugate(pol[k])
-
-					# Asignar el resultado calculado a final_dot
-					final_dot[chunk1*chunk_data:(chunk1+1)*chunk_data, chunk2*chunk_data:(chunk2+1)*chunk_data, :] = subsum
-
-		return final_dot
-
-
-	"""
 	@staticmethod
 	def initialize_polynomials_cpu(z, z_target, w, s):
+		
 		P = np.zeros((s, s, len(z)), dtype=np.complex128)
 		P_target = np.zeros((s, s, len(z_target)), dtype=np.complex128)
 
@@ -516,99 +364,9 @@ class ProcesamientoDatosContinuos:
 					P_target[k, j, :] /= no
 
 		return P, P_target
-	"""
-	
-	
-	@staticmethod
-	def initialize_polynomials_gpu(z, z_target, w, s):
-		# Convertir los arrays a CuPy para operaciones en GPU
-		z = cp.array(z)
-		z_target = cp.array(z_target)
-		w = cp.array(w)
-		P = cp.zeros((s, s, len(z)), dtype=cp.complex128)
-		P_target = cp.zeros((s, s, len(z_target)), dtype=cp.complex128)
-
-		# Calcular los valores de los polinomios
-		for j in range(s):
-			for k in range(s):
-				P[k, j, :] = (z ** k) * cp.conj(z) ** j
-				P_target[k, j, :] = (z_target ** k) * cp.conj(z_target) ** j
-
-				# Normalización sin usar `where`
-				no = cp.sqrt(cp.sum(w * cp.abs(P[k, j, :]) ** 2))
-				if no != 0:
-					P[k, j, :] /= no
-					P_target[k, j, :] /= no
-
-		# Convertir los resultados de nuevo a Numpy para uso en CPU
-		return cp.asnumpy(P), cp.asnumpy(P_target)
-	
-	@staticmethod
-	@jit(parallel=True)
-	def initialize_polynomials_cpu(z, z_target, w, s):
-		P = np.zeros((s, s, len(z)), dtype=np.complex128)
-		P_target = np.zeros((s, s, len(z_target)), dtype=np.complex128)
-
-		for j in prange(s):
-			for k in range(s):
-				P[k, j, :] = (z ** k) * np.conjugate(z) ** j
-				P_target[k, j, :] = (z_target ** k) * np.conjugate(z_target) ** j
-
-				# Normalización
-				no = np.sqrt(np.sum(w * np.abs(P[k, j, :]) ** 2))
-				if no != 0:
-					P[k, j, :] /= no
-					P_target[k, j, :] /= no
-
-		return P, P_target
-
-	@staticmethod
-	@jit(parallel=True)
-	def norm2x2(weights, matrix, chunk_data):
-		N1, N2, n = matrix.shape
-		sub_size = (N1 // chunk_data) + 1
-		final_norm = np.zeros((N1, N2, 1), dtype=np.complex128)
-
-		for chunk1 in prange(sub_size):
-			for chunk2 in prange(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					# Extraer el subarray de matrix
-					start1 = chunk1 * chunk_data
-					end1 = min((chunk1 + 1) * chunk_data, N1)
-					start2 = chunk2 * chunk_data
-					end2 = min((chunk2 + 1) * chunk_data, N2)
-					
-					sub_m = matrix[start1:end1, start2:end2, :]
-					N3, N4, n2 = sub_m.shape
-
-					# Calcular subsum directamente sin broadcast
-					subsum = np.zeros((N3, N4), dtype=np.float64)
-					for i in prange(N3):
-						for j in prange(N4):
-							for k in range(n2):
-								subsum[i, j] += weights[k] * np.abs(sub_m[i, j, k])**2
-							subsum[i, j] = np.sqrt(subsum[i, j])
-
-					# Asignar el resultado a la matriz final_norm
-					final_norm[start1:end1, start2:end2, 0] = subsum
-
-		return final_norm
-
-	def normalize_initial_polynomials_cpu(self, w, P, P_target, V, s, chunk_data):
-		no_data = self.norm2x2(w, P, chunk_data)
-
-		# Dividimos por no_data solo en posiciones donde no_data no es cero
-		for i in range(P.shape[0]):
-			for j in range(P.shape[1]):
-				if V[i, j, 0] != 0:  # Solo si el valor en V es distinto de cero
-					if no_data[i, j] != 0:  # Evitar división por cero
-						P[i, j, :] = P[i, j, :] / no_data[i, j]
-						P_target[i, j, :] = P_target[i, j, :] / no_data[i, j]
-
-		return P, P_target
 
 
-	def normalize_initial_polynomials_gpu(self, w, P, P_target, V, s, chunk_data):
+	def normalize_initial_polynomials_gpu(self, w, P, P_target, V, s, chunk_data, gpu_id):
 		"""
 		Normaliza los polinomios iniciales P y P_target usando CuPy para operaciones en GPU.
 
@@ -630,7 +388,7 @@ class ProcesamientoDatosContinuos:
 		P_target = cp.asarray(P_target)
 
 		# Calcular las normas para la normalización
-		no_data = self.norm2x2_gpu(w, P, chunk_data)
+		no_data = self.norm2x2_gpu(w, P, chunk_data, gpu_id)
 
 		# Evitar divisiones por cero asignando 1 a los elementos de no_data que son cero
 		no_data[no_data == 0] = 1
@@ -654,7 +412,7 @@ class ProcesamientoDatosContinuos:
 
 
 	def gram_schmidt_and_estimation_gpu(self, w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep,
-										chunk_data):
+										chunk_data, gpu_id):
 		"""
 		Realiza el proceso de ortogonalización de Gram-Schmidt y estimación usando GPU.
 
@@ -705,31 +463,22 @@ class ProcesamientoDatosContinuos:
 
 					# Evitar normalización innecesaria si el grado es superior a 1
 					if j == 1 and k > 0 and repeat == 0:
-						no_data = self.norm2x2_gpu(w, P, chunk_data)
+						no_data = self.norm2x2_gpu(w, P, chunk_data, gpu_id)
 						V_mask = cp.where(V == 0, 1, 0)  # Crear una máscara para V
 						no_data *= V_mask  # Aplicar la máscara
 						P /= cp.where(no_data != 0, no_data, 1)
 						P_target /= cp.where(no_data != 0, no_data, 1)
 
-						del no_data
-
 					# Ortogonalización Gram-Schmidt
 					if repeat == 0:
-						print("inicio dot2x2")
-						dot_data = self.dot2x2_gpu_optimized(w, P * V, D, chunk_data)
-						
+						dot_data = self.dot2x2_gpu(w, P * V, D, chunk_data, gpu_id)
 						P -= dot_data * D
 						P_target -= dot_data * D_target
-						print("termina dot2x2")
-
-						del dot_data
 
 					# Se libera la memoria utilizada por la GPU, para evitar un sobreconsumo de
 					# esta.
-					
-					cp.get_default_memory_pool().free_all_blocks()
-					cp.get_default_pinned_memory_pool().free_all_blocks()
-
+					mempool = cp.get_default_memory_pool()
+					mempool.free_all_blocks()
 
 				# Limpieza de valores NaN e Inf
 				P = cp.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
@@ -761,47 +510,52 @@ class ProcesamientoDatosContinuos:
 		return cp.asnumpy(final_data), cp.asnumpy(residual), cp.asnumpy(err), cp.asnumpy(P_target), cp.asnumpy(P)
 
 	def recurrence2d(self, z_target, z, weights, data, size, s, division_sigma, chunk_data):
-		z = np.array(z)
-		z_target = np.array(z_target)
-		w = np.array(weights)
-		residual = np.array(data)
+		num_gpus = self.num_gpus
+		z = cp.array(z)
+		z_target = cp.array(z_target)
+		w = cp.array(weights)
+		residual = cp.array(data)
 
-		sigma_weights = np.divide(1.0, w, where=w != 0, out=np.zeros_like(w))
-		sigma2 = np.max(sigma_weights) / division_sigma
-		print("Sigma:", sigma2)
+		sigma_weights = cp.where(w != 0, 1.0 / w, 0.0)
+		sigma2 = cp.max(sigma_weights) / division_sigma
 
-		final_data = np.zeros(shape=(size), dtype=np.complex128)
-		# P = np.zeros(shape=(s, s, z.size), dtype=np.complex128)
-		# P_target = np.zeros(shape=(s, s, size), dtype=np.complex128)
-		V = np.ones(shape=(s, s, 1), dtype=int)
-		D = np.zeros(z.size, dtype=np.complex128)
-		D_target = np.zeros(size, dtype=np.complex128)
-		err = np.zeros(shape=(size), dtype=float)
+		final_data = cp.zeros(shape=(size), dtype=cp.complex128)
+		V = cp.ones(shape=(s, s, 1), dtype=int)
+		err = cp.zeros(shape=(size), dtype=float)
 
-		# Inicialización de matrices polinómicas P y P_target
-		P, P_target = self.initialize_polynomials_cpu(z, z_target, w, s)
+		# Inicialización de polinomios en múltiples GPUs
+		P, P_target = [], []
+		for gpu_id in range(num_gpus):
+			with cp.cuda.Device(gpu_id):
+				P_gpu, P_target_gpu = self.initialize_polynomials_cpu(z.get(), z_target.get(), w.get(), s)
+				P.append(P_gpu)
+				P_target.append(P_target_gpu)
 
-		print("Polinomios inicializados.")
+		# Normalización de polinomios en múltiples GPUs
+		for gpu_id in range(num_gpus):
+			with cp.cuda.Device(gpu_id):
+				P[gpu_id], P_target[gpu_id] = self.normalize_initial_polynomials_gpu(
+					w, P[gpu_id], P_target[gpu_id], V, s, chunk_data, gpu_id)
 
-		# Normalización inicial de P y P_target
-		P, P_target = self.normalize_initial_polynomials_cpu(w, P, P_target, V, s, chunk_data)
+		# Procesamiento distribuido en GPUs
+		results = []
+		for gpu_id in range(num_gpus):
+			with cp.cuda.Device(gpu_id):
+				result = self.gram_schmidt_and_estimation_gpu(
+					w, P[gpu_id], P_target[gpu_id], V,
+					cp.zeros(size, dtype=cp.complex128),
+					cp.zeros(size, dtype=cp.complex128),
+					residual, final_data, err, s, sigma2,
+					max_rep=2, chunk_data=chunk_data, gpu_id=gpu_id
+				)
+				results.append(result)
 
-		print("Polinomios normalizados.")
+		# Fusionar resultados de múltiples GPUs
+		final_data = sum([r[0] for r in results]) / num_gpus
+		residual = sum([r[1] for r in results]) / num_gpus
+		err = sum([r[2] for r in results]) / num_gpus
 
-		# Procedimiento Gram-Schmidt en los polinomios
-		final_data, residual, err, P_target, P = self.gram_schmidt_and_estimation_gpu(w, P, P_target, V, D, D_target,
-																				 residual, final_data, err, s, sigma2,
-																				 max_rep=2, chunk_data=chunk_data)
-		print("Hice G-S.")
-		del w
-		del D
-		del D_target
-		del z
-		del z_target
+		# Liberación de memoria GPU
+		cp.get_default_memory_pool().free_all_blocks()
 
-		# Se libera la memoria utilizada por la GPU, para evitar un sobreconsumo de
-		# esta.
-		mempool = cp.get_default_memory_pool()
-		mempool.free_all_blocks()
-
-		return final_data, err, residual, P_target, P
+		return cp.asnumpy(final_data), cp.asnumpy(err), cp.asnumpy(residual), cp.asnumpy(P_target[0]), cp.asnumpy(P[0])

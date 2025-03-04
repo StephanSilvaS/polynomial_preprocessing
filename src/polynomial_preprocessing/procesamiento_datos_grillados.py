@@ -1,26 +1,27 @@
 from polynomial_preprocessing import preprocesamiento_datos_a_grillar
-
+from astropy.io import fits
 import cupy as cp
 import numpy as np
 import time
 import matplotlib.pyplot as plt
 
 class ProcesamientoDatosGrillados:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, dx=None, image_size=None):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, verbose = True):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
 		self.division_sigma = division_sigma
-		self.dx = dx
+		self.pixel_size = pixel_size
 		self.image_size = image_size
+		self.verbose = verbose
 
-		if self.dx is None:
+		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																						 ms_path=self.ms_path,
 																						image_size = self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			print("Pixel size of FITS: ", pixels_size)
-			self.dx = pixels_size
+			self.pixel_size = pixels_size
 
 
 
@@ -33,25 +34,25 @@ class ProcesamientoDatosGrillados:
 			self.image_size = fits_dimensions[1]
 
 	def data_processing(self):
-		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = self.grid_data()
-		image_model, weights_model = self.gridded_data_processing(gridded_visibilities, gridded_weights, dx, grid_u, grid_v)
-		return image_model, weights_model
+		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = self.grid_data()
+		image_model, weights_model, visibilities_model, u_target, v_target = self.gridded_data_processing(gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v)
+		return image_model, weights_model, visibilities_model, u_target, v_target
 
 
 	def grid_data(self):
 
-		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,
 																										self.image_size).
 																		  process_ms_file())
 		
-		return gridded_visibilities, gridded_weights, dx,  grid_u, grid_v
+		return gridded_visibilities, gridded_weights, pixel_size,  grid_u, grid_v
 
 
-	def gridded_data_processing(self, gridded_visibilities, gridded_weights, dx, grid_u, grid_v):
+	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
 		# Cargamos los archivos de entrada
-		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
+		fits_header, _, _, du, pixel_size = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
 																								  self.ms_path,
 																								  self.image_size).
@@ -60,13 +61,19 @@ class ProcesamientoDatosGrillados:
 
 		################# Parametros iniciales #############
 		M = 1  # Multiplicador de Pixeles
-		N1 = self.image_size  # Numero de pixeles
-		N1 = N1 * M  # Numero de pixeles,  multiplicador #Version MS
-		S = self.num_polynomial # Numero de polinomios
-		sub_S = int(S)
+		pixel_num = self.image_size  # Numero de pixeles
+		pixel_num = pixel_num * M  # Numero de pixeles,  multiplicador #Version MS
+		num_polynomial = self.num_polynomial # Numero de polinomios
+		sub_S = int(num_polynomial)
 		ini = 1  # Tamano inicial
 		division = self.division_sigma # division_sigma
-		dx = self.dx
+		pixel_size = self.pixel_size
+
+		# Constantes para archivos de salida
+		TITLE_1 = "gridded_visibility_model_natural_"
+		TITLE_1_DIRTY_IMAGE = "dirty_image_gridded_model_natural_"
+		TITLE_1_WEIGHTS = "gridded_weights_model_natural_"
+		TITLE_1_TIME = "execution_time_gridded_"
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
@@ -84,6 +91,8 @@ class ProcesamientoDatosGrillados:
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
 
+		print("gw_sparse.shape: ", gw_sparse.shape)
+
 		u_data = grid_u[u_ind]
 		v_data = grid_v[v_ind]
 
@@ -91,9 +100,9 @@ class ProcesamientoDatosGrillados:
 		plt.figure()
 		plt.plot(gv_sparse, color='r')
 		plt.title("Gridded visibilities distribution")
-		du = 1 / (N1 * dx)
+		du = 1 / (pixel_num * pixel_size)
 
-		umax = N1 * du / 2
+		umax = pixel_num * du / 2
 
 		u_sparse = np.array(u_data) / umax
 		v_sparse = np.array(v_data) / umax
@@ -103,11 +112,16 @@ class ProcesamientoDatosGrillados:
 		plt.ylim(-1, 1)
 		plt.scatter(u_sparse, v_sparse, s=1)
 		plt.title("Gridded uv coverage")
-		u_target = np.reshape(np.linspace(-ini, ini, N1), (1, N1)) * np.ones(shape=(N1, 1))
-		v_target = np.reshape(np.linspace(-ini, ini, N1), (N1, 1)) * np.ones(shape=(1, N1))
+		u_target = np.reshape(np.linspace(-ini, ini, pixel_num), (1, pixel_num)) * np.ones(shape=(pixel_num, 1))
+		v_target = np.reshape(np.linspace(-ini, ini, pixel_num), (pixel_num, 1)) * np.ones(shape=(1, pixel_num))
 
 		z_target = u_target + 1j * v_target
 		z_sparse = u_sparse + 1j * v_sparse
+
+		print("u_sparse: ", u_sparse.shape)
+		print("v_sparse: ", v_sparse.shape)
+
+		print("z_sparse.shape: ", z_sparse.shape)
 
 		b = 1
 
@@ -123,10 +137,10 @@ class ProcesamientoDatosGrillados:
 		"""
 		
 		max_memory = 120000000
-		max_data = float(int(max_memory / (S * S)))
+		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
-		divide_target = int(N1 * N1 / max_data) + 1
+		divide_target = int(pixel_num * pixel_num / max_data) + 1
 
 		if divide_target > divide_data:
 			divide_data = int(divide_target)
@@ -134,20 +148,20 @@ class ProcesamientoDatosGrillados:
 		if divide_data > int(divide_data):
 			divide_data = int(divide_data) + 1
 
-		chunk_data = int(((S * S) / divide_data) ** (1 / 2)) + 1
+		chunk_data = int(((num_polynomial * num_polynomial) / divide_data) ** (1 / 2)) + 1
 		if chunk_data == 0:
 			chunk_data = 1
 
 		# chunk_data = 1
 		print(chunk_data)
 
-		visibilities_model = np.zeros((N1, N1), dtype=np.complex128)
+		visibilities_model = np.zeros((pixel_num, pixel_num), dtype=np.complex128)
 
-		print("New S:", S)
+		print("Max. polynomial degree:", num_polynomial)
 		print("Division:", division)
 
-		visibilities_aux = np.zeros(N1 * N1, dtype=np.complex128)
-		weights_aux = np.zeros(N1 * N1, dtype=float)
+		visibilities_aux = np.zeros(pixel_num * pixel_num, dtype=np.complex128)
+		weights_aux = np.zeros(pixel_num * pixel_num, dtype=float)
 
 		start_time = time.time()
 
@@ -165,12 +179,12 @@ class ProcesamientoDatosGrillados:
 														  gw_sparse.flatten(),
 														  gv_sparse.flatten(),
 														  np.size(z_target.flatten()),
-														  S,
+														  num_polynomial,
 														  division,
 														  chunk_data)
 														 )
 
-		visibilities_mini = np.reshape(visibilities_mini, (N1, N1))
+		visibilities_mini = np.reshape(visibilities_mini, (pixel_num, pixel_num))
 
 		visibilities_model = np.array(visibilities_mini)
 
@@ -179,7 +193,7 @@ class ProcesamientoDatosGrillados:
 		plt.plot(visibilities_model.flatten(), color='g')
 		"""
 		
-		weights_model = np.zeros((N1, N1), dtype=float)
+		weights_model = np.zeros((pixel_num, pixel_num), dtype=float)
 
 		sigma_weights = np.divide(1.0, gw_sparse, where=gw_sparse != 0, out=np.zeros_like(gw_sparse))  # 1.0/gw_sparse
 		sigma = np.max(sigma_weights) / division
@@ -187,18 +201,24 @@ class ProcesamientoDatosGrillados:
 		weights_mini[np.isnan(weights_mini)] = 0.0
 		weights_mini[np.isinf(weights_mini)] = 0.0
 
-		weights_mini = np.reshape(weights_mini, (N1, N1))
+		weights_mini = np.reshape(weights_mini, (pixel_num, pixel_num))
 
 		weights_model = np.array(weights_mini)
 
-		print("El tiempo de ejecución fue de: ", time.time() - start_time)
+		# Finalizar el contador de tiempo
+		end_time = time.time()
+
+		# Calcular el tiempo de ejecución
+		execution_time = end_time - start_time
+
+		print(f"Tiempo de ejecución: {execution_time:.2f} segundos")
 
 		####################################### GENERACION DE GRAFICOS DE SALIDA #####################################
 
 		image_model = (np.fft.fftshift
 					   (np.fft.ifft2
 						(np.fft.ifftshift
-						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * N1 ** 2)
+						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
 		title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
@@ -212,8 +232,66 @@ class ProcesamientoDatosGrillados:
 
 		plt.show()
 
-		return image_model, weights_model
+		if self.verbose == True:
 
+			# Buscar el atributo OBJECT en el header
+			if 'OBJECT' in fits_header:
+				object_name = fits_header['OBJECT']
+				print(f"El objeto en el archivo FITS es: {object_name}")
+			else:
+				object_name = "no_object_name"
+				print("El atributo OBJECT no se encuentra en el header.")
+
+			# Generar nombres de archivos
+			TITLE_TIME_RESULT = self.generate_filename(TITLE_1_TIME, 
+														num_polynomial, 
+														division,
+														pixel_size, 
+														pixel_num, 
+														object_name, 
+														"txt")
+
+			# Guardar el tiempo de ejecución en un archivo de texto
+			with open(TITLE_TIME_RESULT , "w") as file:
+				file.write(f"Tiempo de ejecucion: {execution_time:.2f} segundos\n")
+
+			# Generar nombres de archivos
+			TITLE_VISIBILITIES_RESULT = self.generate_filename(TITLE_1, 
+													  num_polynomial, 
+													  division,
+													  pixel_size, 
+													  pixel_num, 
+													  object_name, 
+													  "npz")
+			
+			TITLE_WEIGHTS_RESULT = self.generate_filename(TITLE_1_WEIGHTS, 
+												 num_polynomial, 
+												 division,
+												 pixel_size, 
+												 pixel_num, 
+												 object_name, 
+												 "npz")
+			
+			TITLE_DIRTY_IMAGE_FITS = self.generate_filename(TITLE_1_DIRTY_IMAGE, 
+												   num_polynomial, 
+												   division,
+												   pixel_size, 
+												   pixel_num, 
+												   object_name, 
+												   "fits")
+
+			# Guardar archivos
+			np.savez(TITLE_VISIBILITIES_RESULT, visibilities_model)
+			np.savez(TITLE_WEIGHTS_RESULT, weights_model)
+			fits.writeto(TITLE_DIRTY_IMAGE_FITS, image_model, fits_header, overwrite=True)
+
+		return image_model, weights_model, visibilities_model, u_target, v_target
+
+	# Función para generar nombres de archivos
+	@staticmethod
+	def generate_filename(prefix, num_polynomials, division, pixel_size, num_pixels, object_name, extension):
+		base_title = f"num_polynomial_{num_polynomials}_division_sigma_{division}_pixel_size_{pixel_size}_image_size_{num_pixels}_{num_pixels}_{object_name}"
+		return f"{prefix}{base_title}.{extension}"
 
 	@staticmethod
 	def dot2x2_gpu(weights, matrix, pol, chunk_data):
@@ -486,7 +564,6 @@ class ProcesamientoDatosGrillados:
 																					  residual, final_data, err, s,
 																					  sigma2,
 																					  max_rep=2, chunk_data=chunk_data)
-		print("Hice G-S")
 		# final_data, residual, err = gram_schmidt_and_estimation(w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep=2, chunk_data=chunk_data)
 
 		del w

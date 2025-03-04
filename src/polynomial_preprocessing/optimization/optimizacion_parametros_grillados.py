@@ -5,24 +5,25 @@ import optuna
 import torch
 import piq
 from polynomial_preprocessing import preprocesamiento_datos_a_grillar, procesamiento_datos_grillados
+from polynomial_preprocessing.image_synthesis import conjugate_gradient
 
 
 class OptimizacionParametrosGrillados:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, dx, image_size):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size, image_size):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path # Ruta de archivo MS
 		self.poly_limits = poly_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
 		self.division_limits = division_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
-		self.dx = dx # Tamaño del Pixel
+		self.pixel_size = pixel_size # Tamaño del Pixel
 		self.image_size = image_size # Cantidad de pixeles para la imagen
 
-		if self.dx is None:
+		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																						 ms_path=self.ms_path,
 																						image_size=self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			print("Pixel size of FITS: ", pixels_size)
-			self.dx = pixels_size
+			self.pixel_size = pixels_size
 
 		if self.image_size is None:
 			fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -33,6 +34,11 @@ class OptimizacionParametrosGrillados:
 			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
 
+	@staticmethod
+	def generate_filename(prefix, poly_limits, division_limits, pixel_size, num_pixels, object_name, extension):
+		base_title = f"num_polynomial_{poly_limits[0]}_{poly_limits[1]}_division_sigma_{division_limits[0]}_{division_limits[1]}_pixel_size_{pixel_size}_image_size_{num_pixels}_{num_pixels}_{object_name}"
+		return f"{prefix}{base_title}.{extension}"
+	
 	@staticmethod
 	def create_mask(grid_shape, radius):
 		"""
@@ -94,23 +100,23 @@ class OptimizacionParametrosGrillados:
 		return brisque_score.item()
 	
 	def grid_data(self):
-		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,
 																										self.image_size).
 																		  process_ms_file())
-		return gridded_visibilities, gridded_weights, dx, grid_u, grid_v
+		return gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v
 
 	def optimize_parameters(self, trial):
 
 		# Cargamos los archivos de entrada
-		header, fits_dimensions, fits_data, du, dx = (preprocesamiento_datos_a_grillar.
+		header, fits_dimensions, fits_data, du, pixel_size = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
 																								  self.ms_path,
 																								  self.image_size).
 																	fits_header_info())
 
-		gridded_visibilities, gridded_weights, dx, grid_u, grid_v = self.grid_data()
+		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = self.grid_data()
 
 
 		################# Parametros iniciales #############
@@ -121,7 +127,7 @@ class OptimizacionParametrosGrillados:
 		sub_S = int(S)
 		ini = 1  # Tamano inicial
 		division = trial.suggest_float("division", self.division_limits[0], self.division_limits[1])
-		dx = self.dx
+		pixel_size = self.pixel_size
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
@@ -142,7 +148,7 @@ class OptimizacionParametrosGrillados:
 		u_data = grid_u[u_ind]
 		v_data = grid_v[v_ind]
 
-		du = 1 / (N1 * dx)
+		du = 1 / (N1 * pixel_size)
 
 		umax = N1 * du / 2
 
@@ -196,7 +202,7 @@ class OptimizacionParametrosGrillados:
 
 		# Obtencion de los datos de la salida con G-S
 
-		data_processing = procesamiento_datos_grillados.ProcesamientoDatosGrillados(self.fits_path, self.ms_path, S, division, self.dx, self.image_size)
+		data_processing = procesamiento_datos_grillados.ProcesamientoDatosGrillados(self.fits_path, self.ms_path, S, division, self.pixel_size, self.image_size)
 
 		try:
 			visibilities_mini, err, residual, P_target, P = (data_processing.recurrence2d
@@ -236,11 +242,14 @@ class OptimizacionParametrosGrillados:
 							(np.fft.ifftshift
 							 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * N1 ** 2)
 			image_model = np.array(image_model.real)
+			
+			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 1000)
 
+			reconstructed_image_cg = reconstructed_image.CG()
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
-
+		
 			# Normalizar imagen para las métricas
-			synthesized_image = image_model - image_model.min()
+			synthesized_image = reconstructed_image_cg - reconstructed_image_cg.min()
 			synthesized_image = (synthesized_image / synthesized_image.max()) * 255
 			synthesized_image = synthesized_image.astype(np.uint8)
 
@@ -267,6 +276,34 @@ class OptimizacionParametrosGrillados:
 		study = optuna.create_study(direction="minimize")
 		study.optimize(self.optimize_parameters, n_trials=num_trials)
 
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		fits_header, _, _, _, _ = interferometric_data.fits_header_info()
+
+		TITLE_1_OPTUNA = "gridded_optimimum_parameters_"
+
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		# Generar nombres de archivos
+		TITLE_OPTUNA_RESULT = self.generate_filename(TITLE_1_OPTUNA,
+													self.poly_limits, 
+													self.division_limits, 
+													self.pixel_size,
+													self.image_size, 
+													object_name, 
+													"txt")
+
+		# Guardar el tiempo de ejecución en un archivo de texto
+		with open(TITLE_OPTUNA_RESULT , "w") as file:
+			file.write(f"Mejores parámetros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
+
 		# Resultados
+		
 		print("Mejores parámetros:", study.best_params)
 		print("Mejor valor (BRISQUE):", study.best_value)

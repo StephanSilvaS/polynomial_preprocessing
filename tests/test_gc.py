@@ -7,15 +7,26 @@ from astropy.io import fits
 def norm(weights,x):
     return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
 
+"""
 ejemplo1 = procesamiento_datos_continuos.ProcesamientoDatosContinuos(
 	"/home/stephan/polynomial_preprocessing/datasets/HD142/dirty_images_natural_251.fits",
     "/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav.ms", 
-	13, 
-    0.09783163540608564, 
+	11, 
+    0.014849768613424696, 
     0.0007310213536, 
     251)
+"""
 
-image_model, weights_model, visibilities_model, _, _, _ = ejemplo1.data_processing()
+ejemplo1 = procesamiento_datos_continuos.ProcesamientoDatosContinuos(
+	"/home/stephan/polynomial_preprocessing/datasets/HD142/dirty_images_natural_251.fits",
+    "/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav.ms", 
+	19, 
+    0.0750780409680797,
+    0.0007310213536, 
+    251, 
+    verbose=True)
+
+image_model, weights_model, visibilities_model, _, _ = ejemplo1.data_processing()
 
 print(image_model.shape)
 
@@ -38,13 +49,14 @@ plt.colorbar(im)
 
 plt.show()
 
-gc_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/norm(weights_model.flatten(), visibilities_model.flatten()), 251)
+gc_image_1 = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/norm(weights_model.flatten(), visibilities_model.flatten()), 1000)
 
+gc_image_data = gc_image_1.CG()
 
 
 print("####### TASK DONE 1 #######")
 
-gc_image_data = gc_image.compute_gradient()
+#gc_image_data = gc_image.compute_gradient()
 
 print(gc_image_data)
 

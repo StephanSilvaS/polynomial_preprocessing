@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="polynomial_preprocessing",  # Nombre del paquete
-    version="1.0.1",  # Versión inicial
+    version="1.0",  # Versión inicial
     author="Stephan Silva Sanguinetti",
     author_email="stephan.silva@usach.cl",
     description="Pre-procesamiento de alto rendimiento basado en polinomios discretos ortogonales para síntesis de imágenes",

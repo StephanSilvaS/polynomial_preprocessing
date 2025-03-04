@@ -6,6 +6,8 @@ import dask
 import dask.array as da
 from matplotlib import pyplot as plt
 import numpy as np
+from pyralysis.convolution import PSWF1
+
 
 class PreprocesamientoDatosAGrillar:
 	def __init__(self, fits_path, ms_path, image_size = None, pixel_size = None):
@@ -103,7 +105,7 @@ class PreprocesamientoDatosAGrillar:
 
 		robust.apply()
 
-		ckernel = None
+		ckernel = PSWF1(size=3, cellsize=dx, oversampling_factor=1) # Variar oversampling implica variar dims. array de pesos.
 
 		dirty_mapper = DirtyMapper(
 			input_data=dataset,
