@@ -10,13 +10,14 @@ from polynomial_preprocessing.image_synthesis import conjugate_gradient
 
 
 class OptimizacionParametrosContinuos:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path  # Ruta de archivo MS
 		self.poly_limits = poly_limits  # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
 		self.division_limits = division_limits  # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
 		self.pixel_size = pixel_size  # Tamaño del Pixel
 		self.image_size = image_size  # Cantidad de pixeles para la imagen
+		self.n_iter_gc = n_iter_gc
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
@@ -102,6 +103,8 @@ class OptimizacionParametrosContinuos:
 
 
 	def optimize_parameters(self, trial):
+
+		start_time = time.time()
 
 		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(self.fits_path, self.ms_path)
 
@@ -189,7 +192,7 @@ class OptimizacionParametrosContinuos:
 
 		data_processing = procesamiento_datos_continuos.ProcesamientoDatosContinuos(self.fits_path, self.ms_path, num_polynomial, division, self.pixel_size, self.image_size, verbose = False)
 
-		start_time = time.time()
+		
 
 		# Llamada a la función recurrence2d
 		try:
@@ -229,7 +232,7 @@ class OptimizacionParametrosContinuos:
 							 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num  ** 2)
 			image_model = np.array(image_model.real)
 
-			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 50)
+			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, self.n_iter_gc)
 
 			reconstructed_image_cg = reconstructed_image.CG()
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)

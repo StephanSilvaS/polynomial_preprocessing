@@ -18,7 +18,7 @@ class ProcesamientoDatosGrillados:
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
-																						 ms_path=self.ms_path,
+																						ms_path=self.ms_path,
 																						image_size = self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
 			print("Pixel size of FITS: ", pixels_size)
@@ -42,10 +42,14 @@ class ProcesamientoDatosGrillados:
 
 	def grid_data(self):
 
+		print("self.pixel_size: ", self.pixel_size)
+		print("self.image_size: ", self.image_size)
+
 		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
-																										self.ms_path,
-																										self.image_size).
+																										self.ms_path,																										
+																										image_size = self.image_size
+																										).
 																		  process_ms_file())
 		
 		return gridded_visibilities, gridded_weights, pixel_size,  grid_u, grid_v
@@ -55,8 +59,9 @@ class ProcesamientoDatosGrillados:
 		# Cargamos los archivos de entrada
 		fits_header, _, _, du, pixel_size = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
-																								  self.ms_path,
-																								  self.image_size).
+																								self.ms_path,																									
+																								image_size = self.image_size
+																								).
 																	fits_header_info())
 
 

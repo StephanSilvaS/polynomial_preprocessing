@@ -9,13 +9,14 @@ from polynomial_preprocessing.image_synthesis import conjugate_gradient
 
 
 class OptimizacionParametrosGrillados:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size, image_size):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size, image_size, n_iter_gc = 100):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path # Ruta de archivo MS
 		self.poly_limits = poly_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
 		self.division_limits = division_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
 		self.pixel_size = pixel_size # Tamaño del Pixel
 		self.image_size = image_size # Cantidad de pixeles para la imagen
+		self.n_iter_gc = n_iter_gc
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -102,8 +103,8 @@ class OptimizacionParametrosGrillados:
 	def grid_data(self):
 		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
-																										self.ms_path,
-																										self.image_size).
+																										self.ms_path,																										
+																										image_size = self.image_size).
 																		  process_ms_file())
 		return gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v
 
@@ -112,8 +113,8 @@ class OptimizacionParametrosGrillados:
 		# Cargamos los archivos de entrada
 		header, fits_dimensions, fits_data, du, pixel_size = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
-																								  self.ms_path,
-																								  self.image_size).
+																								  self.ms_path,																								  
+																								  image_size = self.image_size).
 																	fits_header_info())
 
 		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = self.grid_data()
@@ -202,7 +203,7 @@ class OptimizacionParametrosGrillados:
 
 		# Obtencion de los datos de la salida con G-S
 
-		data_processing = procesamiento_datos_grillados.ProcesamientoDatosGrillados(self.fits_path, self.ms_path, S, division, self.pixel_size, self.image_size)
+		data_processing = procesamiento_datos_grillados.ProcesamientoDatosGrillados(self.fits_path, self.ms_path, S, division, self.pixel_size, self.image_size, verbose = False)
 
 		try:
 			visibilities_mini, err, residual, P_target, P = (data_processing.recurrence2d
@@ -233,7 +234,7 @@ class OptimizacionParametrosGrillados:
 
 			weights_model = np.array(weights_mini)
 
-			print("El tiempo de ejecución fue de: ", time.time() - start_time)
+			
 
 			####################################### GENERACION DE GRAFICOS DE SALIDA #####################################
 
@@ -243,7 +244,7 @@ class OptimizacionParametrosGrillados:
 							 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * N1 ** 2)
 			image_model = np.array(image_model.real)
 			
-			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 50)
+			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, self.n_iter_gc)
 
 			reconstructed_image_cg = reconstructed_image.CG()
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
@@ -255,6 +256,8 @@ class OptimizacionParametrosGrillados:
 
 			# Calcular métricas
 			brisque_score = self.compute_brisque(synthesized_image)
+
+			print("El tiempo de ejecución fue de: ", time.time() - start_time)
 
 			# Minimizar ambas métricas (menores valores indican mejor calidad)
 			return brisque_score

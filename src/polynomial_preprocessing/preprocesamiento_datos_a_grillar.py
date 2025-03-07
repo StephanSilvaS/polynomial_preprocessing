@@ -7,14 +7,16 @@ import dask.array as da
 from matplotlib import pyplot as plt
 import numpy as np
 from pyralysis.convolution import PSWF1
+import astropy.units as unit
 
 
 class PreprocesamientoDatosAGrillar:
-	def __init__(self, fits_path, ms_path, image_size = None, pixel_size = None):
+	def __init__(self, fits_path, ms_path, pixel_size = None, image_size = None):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
-		self.image_size = image_size
 		self.pixel_size = pixel_size
+		self.image_size = image_size
+		
 
 		if self.image_size is None:
 			_, fits_dimensions, _, _, _ = self.fits_header_info()
@@ -65,13 +67,13 @@ class PreprocesamientoDatosAGrillar:
 		imsize = self.image_size
 
 		# Caso para cuando el pixel size es None
-		if self.pixel_size == None:
+		if self.pixel_size is None:
 			print(dataset.theo_resolution)
 			dx = dataset.theo_resolution / 7
 			print(dx)
 
 		else:
-			dx = self.pixel_size / 7
+			dx = self.pixel_size * unit.rad
 
 		pb = dataset.antenna.primary_beam
 		pb.cellsize = dx
