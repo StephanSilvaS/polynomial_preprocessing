@@ -243,7 +243,7 @@ class OptimizacionParametrosGrillados:
 							 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * N1 ** 2)
 			image_model = np.array(image_model.real)
 			
-			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 1000)
+			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 50)
 
 			reconstructed_image_cg = reconstructed_image.CG()
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
@@ -276,6 +276,11 @@ class OptimizacionParametrosGrillados:
 		study = optuna.create_study(direction="minimize")
 		study.optimize(self.optimize_parameters, n_trials=num_trials)
 
+		# Resultados
+		
+		print("Mejores parámetros:", study.best_params)
+		print("Mejor valor (BRISQUE):", study.best_value)
+
 		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
 		fits_header, _, _, _, _ = interferometric_data.fits_header_info()
@@ -301,9 +306,6 @@ class OptimizacionParametrosGrillados:
 
 		# Guardar el tiempo de ejecución en un archivo de texto
 		with open(TITLE_OPTUNA_RESULT , "w") as file:
-			file.write(f"Mejores parámetros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
+			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
 
-		# Resultados
 		
-		print("Mejores parámetros:", study.best_params)
-		print("Mejor valor (BRISQUE):", study.best_value)

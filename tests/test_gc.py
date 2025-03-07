@@ -21,35 +21,20 @@ ejemplo1 = procesamiento_datos_continuos.ProcesamientoDatosContinuos(
 	"/home/stephan/polynomial_preprocessing/datasets/HD142/dirty_images_natural_251.fits",
     "/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav.ms", 
 	19, 
-    0.0750780409680797,
+    0.750780409680797,
     0.0007310213536, 
     251, 
-    verbose=True)
+    verbose=False)
 
 image_model, weights_model, visibilities_model, _, _ = ejemplo1.data_processing()
 
 print(image_model.shape)
 
-N = 251
+N = 30
 
-image_original = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibilities_model*weights_model/np.sum(weights_model.flatten()))))*N**2
-image_original = np.array(image_original.real)
-
-beam_original = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(weights_model/np.sum(weights_model.flatten()))))*N**2
-beam_original = np.array(beam_original.real)
-
-title="Visibility original"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibilities_model))
-plt.colorbar(im)
-
-title="Weight original"; fig=plt.figure(title); plt.title(title); im=plt.imshow(weights_model)
-plt.colorbar(im)
-
-title="Image model"; fig=plt.figure(title); plt.title(title); im=plt.imshow(image_original)
-plt.colorbar(im)
-
-plt.show()
-
-gc_image_1 = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/norm(weights_model.flatten(), visibilities_model.flatten()), 1000)
+gc_image_1 = conjugate_gradient.ConjugateGradient(visibilities_model, 
+                                                  weights_model/norm(weights_model.flatten(), visibilities_model.flatten()), 
+                                                  N)
 
 gc_image_data = gc_image_1.CG()
 

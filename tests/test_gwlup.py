@@ -24,9 +24,6 @@ title = "Weights model (division sigma: " + str() + ")"; fig = plt.figure(title)
 plt.colorbar(im)
 """
 
-import cupy as cp
-print("Número de GPUs disponibles:", cp.cuda.runtime.getDeviceCount())
-
 ejemplo1 = procesamiento_datos_continuos.ProcesamientoDatosContinuos(
 	"/disk2/stephan/TesisAlgoritmoParalelo/datasets/GWLup/GWLup_p0.01_n513.fits",
     "/disk2/stephan/TesisAlgoritmoParalelo/datasets/GWLup/GWLup_continuum.ms", 
@@ -35,6 +32,8 @@ ejemplo1 = procesamiento_datos_continuos.ProcesamientoDatosContinuos(
     -1.7e-05)
 
 dirty_image, vis, weights, _, _ = ejemplo1.data_processing()
+
+
 
 
 """

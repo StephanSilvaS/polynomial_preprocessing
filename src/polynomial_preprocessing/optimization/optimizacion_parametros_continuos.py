@@ -221,7 +221,7 @@ class OptimizacionParametrosContinuos:
 
 			weights_model = np.array(weights_mini)
 
-			print("El tiempo de ejecución fue de: ", time.time() - start_time)
+			
 
 			image_model = (np.fft.fftshift
 						   (np.fft.ifft2
@@ -229,7 +229,7 @@ class OptimizacionParametrosContinuos:
 							 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num  ** 2)
 			image_model = np.array(image_model.real)
 
-			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 1000)
+			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, 50)
 
 			reconstructed_image_cg = reconstructed_image.CG()
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
@@ -242,13 +242,15 @@ class OptimizacionParametrosContinuos:
 			# Calcular métricas
 			brisque_score = self.compute_brisque(synthesized_image)
 
+			print("El tiempo de ejecución fue de: ", time.time() - start_time)
+
 			cp.get_default_memory_pool().free_all_blocks()
 
 			# Minimizar ambas métricas (menores valores indican mejor calidad)
 			return brisque_score
 		
 		except Exception as e:
-			print(f"Error en el cálculo: {e}")
+			print(f"Error en el calculo: {e}")
 			return float("inf")
 		
 		"""
@@ -264,6 +266,11 @@ class OptimizacionParametrosContinuos:
 		# Configuración del estudio de Optuna
 		study = optuna.create_study(direction="minimize")
 		study.optimize(self.optimize_parameters, n_trials=num_trials)
+
+		# Resultados
+		
+		print("Mejores parametros:", study.best_params)
+		print("Mejor valor (BRISQUE):", study.best_value)
 
 		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
@@ -290,11 +297,8 @@ class OptimizacionParametrosContinuos:
 
 		# Guardar el tiempo de ejecución en un archivo de texto
 		with open(TITLE_OPTUNA_RESULT , "w") as file:
-			file.write(f"Mejores parámetros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
+			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
 
-		# Resultados
 		
-		print("Mejores parametros:", study.best_params)
-		print("Mejor valor (BRISQUE):", study.best_value)
 
 	

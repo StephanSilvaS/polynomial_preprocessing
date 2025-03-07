@@ -64,8 +64,11 @@ class PreprocesamientoDatosAGrillar:
 
 		imsize = self.image_size
 
+		# Caso para cuando el pixel size es None
 		if self.pixel_size == None:
+			print(dataset.theo_resolution)
 			dx = dataset.theo_resolution / 7
+			print(dx)
 
 		else:
 			dx = self.pixel_size / 7
@@ -136,5 +139,7 @@ class PreprocesamientoDatosAGrillar:
 		dv = 1 / (m * dx)
 		u = np.fft.fftshift(np.fft.fftfreq(n)) * n * du
 		v = np.fft.fftshift(np.fft.fftfreq(m)) * m * dv
+
+		print("dx a entregar: ", dx)
 
 		return gridded_visibilities, gridded_weights, dx, u, v

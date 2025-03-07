@@ -27,19 +27,8 @@ ejemplo_dg = procesamiento_datos_grillados.ProcesamientoDatosGrillados(
 
 visibilidades_grilladas, pesos = ejemplo_dg.data_processing()
 
-
-ejemplo_opti_dc = optimizacion_parametros_continuos.OptimizacionParametrosContinuos(
-    "/home/stephan/polynomial_preprocessing/datasets/HD142/dirty_images_natural_251.fits",
-	"/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav.ms",
-	[5, 21],
-	[1e-3, 1e0],
-	0.0007310213536,
-	251)
-
-ejemplo_opti_dc.initialize_optimization(10)
-
 """
-
+"""
 
 ejemplo_opti_dg = optimizacion_parametros_grillados.OptimizacionParametrosGrillados(
     "/home/stephan/polynomial_preprocessing/datasets/HD142/dirty_images_natural_251.fits",
@@ -49,7 +38,27 @@ ejemplo_opti_dg = optimizacion_parametros_grillados.OptimizacionParametrosGrilla
 	0.0007310213536,
 	251)
 
-ejemplo_opti_dg.initialize_optimization(10)
+"""
+ejemplo_opti_dc = optimizacion_parametros_continuos.OptimizacionParametrosContinuos(
+	"/home/stephan/polynomial_preprocessing/datasets/GWLup/GWLup_p0.01_n513.fits",
+    "/home/stephan/polynomial_preprocessing/datasets/GWLup/GWLup_continuum.ms", 
+	[10, 20], 
+    [10**(-4), 10**(-1)],
+    -1.7777777e-05,
+    251)
+
+ejemplo_opti_dc.initialize_optimization(30)
 
 
 
+"""
+ejemplo_opti_dc = optimizacion_parametros_continuos.OptimizacionParametrosContinuos(
+    "/home/stephan/polynomial_preprocessing/datasets/HD142/dirty_images_natural_251.fits",
+	"/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav.ms",
+	[15, 25],
+	[1e-3, 1e0],
+	0.0007310213536,
+	251)
+
+ejemplo_opti_dc.initialize_optimization(2)
+"""

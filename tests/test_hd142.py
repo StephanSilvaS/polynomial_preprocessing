@@ -7,11 +7,12 @@ import cupy as cp
 print("Memoria de GPU: ", cp.cuda.Device(0).mem_info[1])
 
 ejemplo_dc = procesamiento_datos_continuos.ProcesamientoDatosContinuos(
-    "/disk2/stephan/TesisAlgoritmoParalelo/datasets/HD142/dirty_images_natural_251.fits",
-    "/disk2/stephan/TesisAlgoritmoParalelo/datasets/HD142/hd142_b9cont_self_tav.ms", 
+    "/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav_p513_cell_0.01.fits",
+    "/home/stephan/polynomial_preprocessing/datasets/HD142/hd142_b9cont_self_tav.ms", 
     19, 
     0.0750780409680797,
-    0.0007310213536)
+    0.0007310213536,
+    251)
 
 dirty_image, pesos, visibilidades, _, _ = ejemplo_dc.data_processing()
 

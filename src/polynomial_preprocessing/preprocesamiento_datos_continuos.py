@@ -26,10 +26,12 @@ class PreprocesamientoDatosContinuos:
 		ms_data = DaskMS(input_name=self.ms_path)
 		dataset = ms_data.read(filter_flag_column=False, calculate_psf=False)
 
+		dx = dataset.theo_resolution / 7
+
 		# UV continuas
 		for i, ms in enumerate(dataset.ms_list):
 			uvw = ms.visibilities.uvw.data
 			visibilities_data = ms.visibilities.data
 			weights_data = ms.visibilities.weight.data
 
-		return uvw.compute(), visibilities_data.compute().values, weights_data.compute()
+		return uvw.compute(), visibilities_data.compute().values, weights_data.compute(), dx

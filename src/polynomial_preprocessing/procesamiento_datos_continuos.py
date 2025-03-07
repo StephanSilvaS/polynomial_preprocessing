@@ -1,6 +1,7 @@
 from polynomial_preprocessing import preprocesamiento_datos_continuos
 import numpy as np
 import cupy as cp
+import dask.array as da
 import time
 import matplotlib.pyplot as plt
 from astropy.io import fits
@@ -36,11 +37,13 @@ class ProcesamientoDatosContinuos:
 
 
 	def data_processing(self):
+
+		start_time = time.time()
 		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
 		fits_header, _, _, du, pixel_size = interferometric_data.fits_header_info()
 
-		uvw_coords, visibilities, weights = interferometric_data.process_ms_file()
+		uvw_coords, visibilities, weights, _ = interferometric_data.process_ms_file()
 
 		M = 1  # Multiplicador de Pixeles
 		pixel_num = self.image_size  # Numero de pixeles
@@ -111,7 +114,7 @@ class ProcesamientoDatosContinuos:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
-		max_memory = 15059545088
+		max_memory = cp.cuda.Device(0).mem_info[1]
 		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -137,7 +140,7 @@ class ProcesamientoDatosContinuos:
 		visibilities_aux = np.zeros(pixel_num * pixel_num, dtype=np.complex128)
 		weights_aux = np.zeros(pixel_num * pixel_num, dtype=float)
 
-		start_time = time.time()
+		
 
 		visibilities_mini, err, residual, P_target, P = (self.recurrence2d(z_target.flatten(),
 																		   z_sparse.flatten(),
@@ -248,7 +251,7 @@ class ProcesamientoDatosContinuos:
 			fits.writeto(TITLE_DIRTY_IMAGE_FITS, image_model, fits_header, overwrite=True)
 
 
-		return image_model, weights_model, visibilities_model, u_target, v_target
+		return image_model, visibilities_model, weights_model, u_target, v_target
 	
 	# Función para generar nombres de archivos
 	@staticmethod
@@ -392,7 +395,7 @@ class ProcesamientoDatosContinuos:
 
 		# Calcular memoria disponible para el cálculo
 		available_mem = total_mem - used_mem  # Memoria real disponible
-		mem_usage_factor = 1  # Usar hasta el 90% de la memoria disponible
+		mem_usage_factor = 0.95  # Usar hasta el 90% de la memoria disponible
 
 		# Ajustar chunk_data usando memoria real disponible
 		chunk_data = max(1, min(chunk_data, int(mem_usage_factor * available_mem)))
@@ -496,7 +499,50 @@ class ProcesamientoDatosContinuos:
 					final_dot[chunk1*chunk_data:(chunk1+1)*chunk_data, chunk2*chunk_data:(chunk2+1)*chunk_data, :] = subsum
 
 		return final_dot
+	
+	@staticmethod
+	def dot2x2_dask(weights, matrix, pol, chunk_data):
+		"""
+		Distribuye el cálculo de dot2x2 entre CPU y GPU usando Dask y CuPy para evitar OutOfMemoryError.
 
+		Parámetros:
+		- weights: CuPy array 1D de pesos complejos.
+		- matrix: CuPy array 3D de datos complejos.
+		- pol: CuPy array 1D de polinomios conjugados.
+		- chunk_data: Tamaño del bloque de datos a procesar.
+
+		Retorna:
+		- final_dot: CuPy array 3D con los resultados optimizados.
+		"""
+
+		N1, N2, n = matrix.shape
+
+		# Ajustar chunk_size dinámicamente según memoria disponible
+		total_mem = cp.cuda.Device(0).mem_info[1]
+		used_mem = total_mem - cp.cuda.Device(0).mem_info[0]
+		available_mem = total_mem - used_mem
+
+		# Usar un 80% de la memoria libre para el cálculo
+		mem_usage_factor = 0.95
+		chunk_size_dynamic = max(1, min(chunk_data, int(mem_usage_factor * available_mem))) 
+
+		# Convertir los arrays a Dask con chunks más pequeños
+		dask_matrix = da.from_array(matrix, chunks=(chunk_size_dynamic, chunk_size_dynamic, -1))
+		dask_weights = da.from_array(weights, chunks=(-1,))
+		dask_pol = da.from_array(pol, chunks=(-1,))
+
+		# Realizar la multiplicación en pequeños bloques
+		result = dask_matrix * dask_weights * dask_pol
+		result = da.sum(result, axis=2, keepdims=True).persist()  # .persist() evita cargar todo a la vez en la GPU
+
+		# Convertir a CuPy solo el resultado final
+		final_dot = cp.array(result.compute())
+
+		# Liberar memoria intermedia
+		del dask_matrix, dask_weights, dask_pol, result
+		cp.get_default_memory_pool().free_all_blocks()
+
+		return final_dot
 
 	"""
 	@staticmethod
@@ -715,12 +761,10 @@ class ProcesamientoDatosContinuos:
 
 					# Ortogonalización Gram-Schmidt
 					if repeat == 0:
-						print("inicio dot2x2")
 						dot_data = self.dot2x2_gpu_optimized(w, P * V, D, chunk_data)
 						
 						P -= dot_data * D
 						P_target -= dot_data * D_target
-						print("termina dot2x2")
 
 						del dot_data
 
