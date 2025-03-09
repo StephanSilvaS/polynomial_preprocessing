@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from numba import jit, prange
 
 class ProcesamientoDatosGrillados:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, verbose = True):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, verbose = True, plots = False):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
@@ -15,6 +15,7 @@ class ProcesamientoDatosGrillados:
 		self.pixel_size = pixel_size
 		self.image_size = image_size
 		self.verbose = verbose
+		self.plots = plots
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -48,7 +49,8 @@ class ProcesamientoDatosGrillados:
 		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,																										
-																										image_size = self.image_size
+																										image_size = self.image_size,
+																										plots = self.plots
 																										).
 																		  process_ms_file())
 		
@@ -56,11 +58,15 @@ class ProcesamientoDatosGrillados:
 
 
 	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
+
+		start_time = time.time()
+
 		# Cargamos los archivos de entrada
 		fits_header, _, _, du, pixel_size = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
 																								self.ms_path,																									
-																								image_size = self.image_size
+																								image_size = self.image_size,
+																								plots = self.plots
 																								).
 																	fits_header_info())
 
@@ -103,9 +109,11 @@ class ProcesamientoDatosGrillados:
 		v_data = grid_v[v_ind]
 
 		############################################# Ploteo del Primary beam
-		plt.figure()
-		plt.plot(gv_sparse, color='r')
-		plt.title("Gridded visibilities distribution")
+		if self.plots == True:
+			plt.figure()
+			plt.plot(gv_sparse, color='r')
+			plt.title("Gridded visibilities distribution")
+
 		du = 1 / (pixel_num * pixel_size)
 
 		umax = pixel_num * du / 2
@@ -113,11 +121,13 @@ class ProcesamientoDatosGrillados:
 		u_sparse = np.array(u_data) / umax
 		v_sparse = np.array(v_data) / umax
 
-		plt.figure()
-		plt.xlim(-1, 1)
-		plt.ylim(-1, 1)
-		plt.scatter(u_sparse, v_sparse, s=1)
-		plt.title("Gridded uv coverage")
+		if self.plots == True:
+			plt.figure()
+			plt.xlim(-1, 1)
+			plt.ylim(-1, 1)
+			plt.scatter(u_sparse, v_sparse, s=1)
+			plt.title("Gridded uv coverage")
+
 		u_target = np.reshape(np.linspace(-ini, ini, pixel_num), (1, pixel_num)) * np.ones(shape=(pixel_num, 1))
 		v_target = np.reshape(np.linspace(-ini, ini, pixel_num), (pixel_num, 1)) * np.ones(shape=(1, pixel_num))
 
@@ -133,14 +143,14 @@ class ProcesamientoDatosGrillados:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
-		"""
-		title = "Z exp"
-		fig = plt.figure(title)
-		plt.title(title)
-		im = plt.imshow(np.abs(z_exp))  # Usar np.abs para evitar el warning
-		plt.colorbar(im)
-		plt.show()
-		"""
+		if self.plots == True:
+			title = "Z exp"
+			fig = plt.figure(title)
+			plt.title(title)
+			im = plt.imshow(np.abs(z_exp))  # Usar np.abs para evitar el warning
+			plt.colorbar(im)
+			plt.show()
+			
 		
 		max_memory = 120000000
 		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
@@ -169,7 +179,6 @@ class ProcesamientoDatosGrillados:
 		visibilities_aux = np.zeros(pixel_num * pixel_num, dtype=np.complex128)
 		weights_aux = np.zeros(pixel_num * pixel_num, dtype=float)
 
-		start_time = time.time()
 
 		# print(z_target.dtype)
 		# print(z_sparse.dtype)
@@ -194,10 +203,10 @@ class ProcesamientoDatosGrillados:
 
 		visibilities_model = np.array(visibilities_mini)
 
-		"""
-		plt.figure()
-		plt.plot(visibilities_model.flatten(), color='g')
-		"""
+		if self.plots == True:
+			plt.figure()
+			plt.plot(visibilities_model.flatten(), color='g')
+
 		
 		weights_model = np.zeros((pixel_num, pixel_num), dtype=float)
 
@@ -227,16 +236,17 @@ class ProcesamientoDatosGrillados:
 						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
-		title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
-		plt.colorbar(im)
+		if self.plots == True:
+			title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
+			plt.colorbar(im)
 
-		title = "Visibility model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.absolute(visibilities_model))
-		plt.colorbar(im)
+			title = "Visibility model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+			plt.colorbar(im)
 
-		title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
-		plt.colorbar(im)
+			title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+			plt.colorbar(im)
 
-		plt.show()
+			plt.show()
 
 		if self.verbose == True:
 
@@ -508,24 +518,6 @@ class ProcesamientoDatosGrillados:
 
 		return final_norm
 
-	@staticmethod
-	def initialize_polynomials_cpu(z, z_target, w, s):
-		P = np.zeros((s, s, len(z)), dtype=np.complex128)
-		P_target = np.zeros((s, s, len(z_target)), dtype=np.complex128)
-
-		for j in range(s):
-			for k in range(s):
-				P[k, j, :] = (z ** k) * np.conjugate(z) ** j
-				P_target[k, j, :] = (z_target ** k) * np.conjugate(z_target) ** j
-
-				# Normalización
-				no = np.sqrt(np.sum(w * np.abs(P[k, j, :]) ** 2))
-				if no != 0:
-					P[k, j, :] /= no
-					P_target[k, j, :] /= no
-
-		return P, P_target
-
 	def normalize_initial_polynomials_gpu(self, w, P, P_target, V, s, chunk_data):
 		"""
 		Normaliza los polinomios iniciales P y P_target usando CuPy para operaciones en GPU.
@@ -635,6 +627,14 @@ class ProcesamientoDatosGrillados:
 						P -= dot_data * D
 						P_target -= dot_data * D_target
 
+						del dot_data
+
+					# Se libera la memoria utilizada por la GPU, para evitar un sobreconsumo de
+					# esta.
+					
+					cp.get_default_memory_pool().free_all_blocks()
+					cp.get_default_pinned_memory_pool().free_all_blocks()
+
 				# Limpieza de valores NaN e Inf
 				P = cp.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
 				P_target = cp.nan_to_num(P_target, nan=0.0, posinf=0.0, neginf=0.0)
@@ -685,8 +685,12 @@ class ProcesamientoDatosGrillados:
 		# Inicialización de matrices polinómicas P y P_target
 		P, P_target = self.initialize_polynomials_cpu(z, z_target, w, s)
 
+		print("Polinomios inicializados.")
+
 		# Normalización inicial de P y P_target
 		P, P_target = self.normalize_initial_polynomials_cpu(w, P, P_target, V, s, chunk_data)
+
+		print("Polinomios normalizados.")
 
 		# Procedimiento Gram-Schmidt en los polinomios
 		final_data, residual, err, P_target, P = self.gram_schmidt_and_estimation_gpu(w, P, P_target, V, D, D_target,
@@ -694,6 +698,8 @@ class ProcesamientoDatosGrillados:
 																					  sigma2,
 																					  max_rep=2, chunk_data=chunk_data)
 		# final_data, residual, err = gram_schmidt_and_estimation(w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep=2, chunk_data=chunk_data)
+		
+		print("Hice G-S.")
 
 		del w
 		del D

@@ -8,10 +8,8 @@ from astropy.io import fits
 from numba import jit, complex128, float64, int32, prange
 
 
-
-
 class ProcesamientoDatosContinuos:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, verbose = True):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, verbose = True, plots = False):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
@@ -19,6 +17,7 @@ class ProcesamientoDatosContinuos:
 		self.pixel_size = pixel_size
 		self.image_size = image_size
 		self.verbose = verbose
+		self.plots = plots
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
@@ -95,11 +94,12 @@ class ProcesamientoDatosContinuos:
 		u_sparse = np.array(u_data) / umax
 		v_sparse = np.array(v_data) / umax
 
-		plt.figure()
-		plt.xlim(-1, 1)
-		plt.ylim(-1, 1)
-		plt.scatter(u_sparse, v_sparse, s = 1)
-		plt.title("Gridded uv coverage")
+		if self.plots == True:
+			plt.figure()
+			plt.xlim(-1, 1)
+			plt.ylim(-1, 1)
+			plt.scatter(u_sparse, v_sparse, s = 1)
+			plt.title("Gridded uv coverage")
 
 		u_target = np.reshape(np.linspace(-ini, ini, pixel_num), (1, pixel_num)) * np.ones(shape=(pixel_num, 1))
 		v_target = np.reshape(np.linspace(-ini, ini, pixel_num), (pixel_num, 1)) * np.ones(shape=(1, pixel_num))
@@ -154,12 +154,9 @@ class ProcesamientoDatosContinuos:
 
 		visibilities_model = np.array(visibilities_mini)
 
-		"""
-		plt.figure()
-		plt.plot(visibilities_model.flatten(), color='g')
-		"""
-		plt.figure()
-		plt.plot(visibilities_model.flatten(), color='g')
+		if self.plots == True:
+			plt.figure()
+			plt.plot(visibilities_model.flatten(), color='g')
 
 
 		sigma_weights = np.divide(1.0, gw_sparse, where=gw_sparse != 0, out=np.zeros_like(gw_sparse))  # 1.0/gw_sparse
@@ -186,16 +183,17 @@ class ProcesamientoDatosContinuos:
 						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
-		title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
-		plt.colorbar(im)
+		if self.plots == True:
+			title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
+			plt.colorbar(im)
 
-		title = "Visibility model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.absolute(visibilities_model))
-		plt.colorbar(im)
+			title = "Visibility model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+			plt.colorbar(im)
 
-		title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
-		plt.colorbar(im)
+			title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+			plt.colorbar(im)
 
-		plt.show()
+			plt.show()
 
 		if self.verbose == True:
 

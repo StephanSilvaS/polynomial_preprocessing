@@ -11,11 +11,12 @@ import astropy.units as unit
 
 
 class PreprocesamientoDatosAGrillar:
-	def __init__(self, fits_path, ms_path, pixel_size = None, image_size = None):
+	def __init__(self, fits_path, ms_path, pixel_size = None, image_size = None, plots = False):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.pixel_size = pixel_size
 		self.image_size = image_size
+		self.plots = plots
 		
 
 		if self.image_size is None:
@@ -92,9 +93,11 @@ class PreprocesamientoDatosAGrillar:
 		)
 
 		p_beams_together = da.sum(p_beams, axis=(0, 1, 2))
-		plt.imshow(p_beams_together)
-		plt.colorbar()
-		plt.show()
+
+		if self.plots == True:
+			plt.imshow(p_beams_together)
+			plt.colorbar()
+			plt.show()
 
 		# Gridding
 
@@ -127,10 +130,11 @@ class PreprocesamientoDatosAGrillar:
 			*[dirty_images_robust[0].data[0], dirty_images_robust[1].data[0]]
 		)
 
-		plt.imshow(dirty_image, origin="lower", vmin=np.min(dirty_image), vmax=np.max(dirty_image))
-		plt.colorbar()
+		if self.plots == True:
+			plt.imshow(dirty_image, origin="lower", vmin=np.min(dirty_image), vmax=np.max(dirty_image))
+			plt.colorbar()
+			plt.show()
 
-		plt.show()
 		gridded_visibilities, gridded_weights = da.compute(
 			*[dirty_mapper.uvgridded_visibilities, dirty_mapper.uvgridded_weights]
 		)

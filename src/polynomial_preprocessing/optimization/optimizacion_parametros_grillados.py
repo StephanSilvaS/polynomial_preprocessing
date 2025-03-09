@@ -9,7 +9,7 @@ from polynomial_preprocessing.image_synthesis import conjugate_gradient
 
 
 class OptimizacionParametrosGrillados:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size, image_size, n_iter_gc = 100):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path # Ruta de archivo MS
 		self.poly_limits = poly_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
@@ -34,6 +34,22 @@ class OptimizacionParametrosGrillados:
 			_, fits_dimensions, _, _, _ = fits_header.fits_header_info()
 			print("Image size of FITS: ", fits_dimensions[1])
 			self.image_size = fits_dimensions[1]
+
+		grid_visibilities, grid_weights, _, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
+																PreprocesamientoDatosAGrillar(self.fits_path,
+																								self.ms_path,																										
+																									image_size = self.image_size).
+																		  process_ms_file())
+		
+		self.gridded_visibilities = grid_visibilities
+
+		self.gridded_weights = grid_weights
+
+		self.grid_u = grid_u
+
+		self.grid_v = grid_v
+	
+
 
 	@staticmethod
 	def generate_filename(prefix, poly_limits, division_limits, pixel_size, num_pixels, object_name, extension):
@@ -109,15 +125,15 @@ class OptimizacionParametrosGrillados:
 		return gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v
 
 	def optimize_parameters(self, trial):
-
+		
+		start_time = time.time()
+		
 		# Cargamos los archivos de entrada
 		header, fits_dimensions, fits_data, du, pixel_size = (preprocesamiento_datos_a_grillar.
 																	PreprocesamientoDatosAGrillar(self.fits_path,
 																								  self.ms_path,																								  
 																								  image_size = self.image_size).
 																	fits_header_info())
-
-		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = self.grid_data()
 
 
 		################# Parametros iniciales #############
@@ -132,9 +148,9 @@ class OptimizacionParametrosGrillados:
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
-		u_ind, v_ind = np.nonzero(gridded_visibilities[0])
-		gridded_visibilities_2d = gridded_visibilities[0].flatten()  # (1,251,251)->(251,251)
-		gridded_weights_2d = gridded_weights[0].flatten()  # (1,251,251)->(251,251)
+		u_ind, v_ind = np.nonzero(self.gridded_visibilities[0])
+		gridded_visibilities_2d = self.gridded_visibilities[0].flatten()  # (1,251,251)->(251,251)
+		gridded_weights_2d = self.gridded_weights[0].flatten()  # (1,251,251)->(251,251)
 
 		# Filtramos por los valores no nulos
 		nonzero_indices = np.nonzero(gridded_weights_2d)
@@ -146,8 +162,8 @@ class OptimizacionParametrosGrillados:
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
 
-		u_data = grid_u[u_ind]
-		v_data = grid_v[v_ind]
+		u_data = self.grid_u[u_ind]
+		v_data = self.grid_v[v_ind]
 
 		du = 1 / (N1 * pixel_size)
 
@@ -193,7 +209,7 @@ class OptimizacionParametrosGrillados:
 		visibilities_aux = np.zeros(N1 * N1, dtype=np.complex128)
 		weights_aux = np.zeros(N1 * N1, dtype=float)
 
-		start_time = time.time()
+		
 
 		# print(z_target.dtype)
 		# print(z_sparse.dtype)
@@ -281,7 +297,7 @@ class OptimizacionParametrosGrillados:
 
 		# Resultados
 		
-		print("Mejores parámetros:", study.best_params)
+		print("Mejores parametros:", study.best_params)
 		print("Mejor valor (BRISQUE):", study.best_value)
 
 		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
