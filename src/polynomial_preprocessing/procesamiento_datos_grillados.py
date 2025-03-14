@@ -4,7 +4,9 @@ import cupy as cp
 import numpy as np
 import time
 import matplotlib.pyplot as plt
+import astropy.units as unit
 from numba import jit, prange
+from astropy.coordinates import Angle
 
 class ProcesamientoDatosGrillados:
 	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, verbose = True, plots = False):
@@ -19,12 +21,17 @@ class ProcesamientoDatosGrillados:
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
-																						ms_path=self.ms_path,
-																						image_size = self.image_size)
+																						ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
-			print("Pixel size of FITS: ", pixels_size)
-			self.pixel_size = pixels_size
+			print("Pixel size of FITS on degree: ", pixels_size)
+			
+			# Se requiere transformar de grados a radianes el tam. de pixel.
+			angulo = Angle(pixels_size, unit='deg')
 
+			pixels_size_rad = angulo.radian * unit.rad
+
+			print("Pixel size of FITS on radians: ", pixels_size_rad)
+			self.pixel_size = pixels_size_rad
 
 
 		if self.image_size is None:
@@ -50,6 +57,7 @@ class ProcesamientoDatosGrillados:
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,																										
 																										image_size = self.image_size,
+																										pixel_size = self.pixel_size,
 																										plots = self.plots
 																										).
 																		  process_ms_file())
@@ -66,6 +74,7 @@ class ProcesamientoDatosGrillados:
 																	PreprocesamientoDatosAGrillar(self.fits_path,
 																								self.ms_path,																									
 																								image_size = self.image_size,
+																								pixel_size = self.pixel_size,
 																								plots = self.plots
 																								).
 																	fits_header_info())
@@ -199,9 +208,17 @@ class ProcesamientoDatosGrillados:
 														  chunk_data)
 														 )
 
+		print("visibilities_mini.shape: ", visibilities_mini.shape)
+
+		print("residual.shape: ", residual.shape)
+
 		visibilities_mini = np.reshape(visibilities_mini, (pixel_num, pixel_num))
 
 		visibilities_model = np.array(visibilities_mini)
+
+		#residual_mini = np.reshape(residual, (pixel_num, pixel_num))
+
+		#residual_model = np.array(residual_mini)
 
 		if self.plots == True:
 			plt.figure()
@@ -236,6 +253,8 @@ class ProcesamientoDatosGrillados:
 						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
+		print("residual.shape: ", residual.shape)
+
 		if self.plots == True:
 			title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
 			plt.colorbar(im)
@@ -245,6 +264,9 @@ class ProcesamientoDatosGrillados:
 
 			title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 			plt.colorbar(im)
+
+			#title="Residual model (division sigma: "+str(division)+")"; fig=plt.figure(title); plt.title(title); im=plt.imshow(residual_model)
+			#plt.colorbar(im)
 
 			plt.show()
 
@@ -372,36 +394,25 @@ class ProcesamientoDatosGrillados:
 
 		return P, P_target
 	
-	@staticmethod
+
+	
+	"""
+		@staticmethod
 	def dot2x2_gpu_optimized(weights, matrix, pol, chunk_data):
-		"""
-		Versión optimizada de dot2x2_gpu para reducir el uso de memoria en GPU y mejorar el rendimiento.
-
-		Parámetros:
-		- weights: CuPy array 1D de pesos complejos.
-		- matrix: CuPy array 3D de datos complejos.
-		- pol: CuPy array 1D de polinomios conjugados.
-		- chunk_data: Tamaño del bloque de datos a procesar.
-
-		Retorna:
-		- final_dot: CuPy array 3D con los resultados.
-		"""
 		N1, N2, n = matrix.shape
 		sub_size = max(1, (N1 // chunk_data) + 1)
 
 		# Obtener la memoria total y usada en la GPU
 		total_mem = cp.cuda.Device(0).mem_info[1]  # Memoria total de la GPU 0 en bytes
 		used_mem = total_mem - cp.cuda.Device(0).mem_info[0]  # Memoria ya utilizada
-
-		# Calcular memoria disponible para el cálculo
 		available_mem = total_mem - used_mem  # Memoria real disponible
-		mem_usage_factor = 1  # Usar hasta el 90% de la memoria disponible
+		mem_usage_factor = 0.9  # Usar hasta el 90% de la memoria disponible
 
 		# Ajustar chunk_data usando memoria real disponible
 		chunk_data = max(1, min(chunk_data, int(mem_usage_factor * available_mem)))
 
 		# Inicializar matriz de salida en menor precisión para reducir uso de memoria
-		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)  # Usar complex64
+		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex64)  # Usar complex64
 
 		# Procesamiento por fragmentos para evitar OOM
 		for chunk1 in range(sub_size):
@@ -430,6 +441,7 @@ class ProcesamientoDatosGrillados:
 		cp.get_default_memory_pool().free_all_blocks()
 
 		return final_dot
+	"""
 	
 	@staticmethod
 	@jit(parallel=True)
@@ -663,6 +675,32 @@ class ProcesamientoDatosGrillados:
 
 		# Convertir las salidas de nuevo a NumPy para evitar errores fuera de esta función
 		return cp.asnumpy(final_data), cp.asnumpy(residual), cp.asnumpy(err), cp.asnumpy(P_target), cp.asnumpy(P)
+	
+	
+	@staticmethod
+	def dot2x2_gpu_optimized(weights, matrix, pol, chunk_data):
+		"""
+		Versión optimizada de dot2x2_gpu para reducir el uso de memoria en GPU.
+		"""
+		N1, N2, n = matrix.shape
+		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)
+
+		for chunk1 in range(N1 // chunk_data + 1):
+			for chunk2 in range(N2 // chunk_data + 1):
+				start1 = chunk1 * chunk_data
+				end1 = min((chunk1 + 1) * chunk_data, N1)
+				start2 = chunk2 * chunk_data
+				end2 = min((chunk2 + 1) * chunk_data, N2)
+
+				sub_matrix = matrix[start1:end1, start2:end2, :]
+				subsum = cp.einsum('ijk,k->ij', sub_matrix * weights, cp.conjugate(pol))
+				final_dot[start1:end1, start2:end2, 0] += subsum
+
+				# Liberar memoria intermedia
+				del sub_matrix, subsum
+				cp.get_default_memory_pool().free_all_blocks()
+
+		return final_dot
 
 	def recurrence2d(self, z_target, z, weights, data, size, s, division_sigma, chunk_data):
 		z = np.array(z)

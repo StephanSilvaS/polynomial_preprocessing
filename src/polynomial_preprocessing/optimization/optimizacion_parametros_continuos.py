@@ -7,7 +7,10 @@ import torch
 import piq
 from polynomial_preprocessing import preprocesamiento_datos_continuos, procesamiento_datos_continuos
 from polynomial_preprocessing.image_synthesis import conjugate_gradient
-
+from optuna.visualization import plot_optimization_history
+from astropy.coordinates import Angle
+import astropy.units as unit
+from plotly.io import show
 
 class OptimizacionParametrosContinuos:
 	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100):
@@ -23,8 +26,15 @@ class OptimizacionParametrosContinuos:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
-			print("Pixel size of FITS: ", pixels_size)
-			self.pixel_size = pixels_size
+			
+			# Se requiere transformar de grados a radianes el tam. de pixel.
+			angulo = Angle(pixels_size, unit='deg')
+
+			pixels_size_rad = angulo.radian * unit.rad
+
+			print("Pixel size of FITS: ", pixels_size_rad)
+
+			self.pixel_size = pixels_size_rad
 
 		if self.image_size is None:
 			fits_header = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
@@ -38,6 +48,18 @@ class OptimizacionParametrosContinuos:
 	def generate_filename(prefix, poly_limits, division_limits, pixel_size, num_pixels, object_name, extension):
 		base_title = f"num_polynomial_{poly_limits[0]}_{poly_limits[1]}_division_sigma_{division_limits[0]}_{division_limits[1]}_pixel_size_{pixel_size}_image_size_{num_pixels}_{num_pixels}_{object_name}"
 		return f"{prefix}{base_title}.{extension}"
+	
+	@staticmethod
+	def comp_imagenes_model(imagen_verdad, imagen_algoritmo):
+		imagen_verdad/=np.max(imagen_verdad)
+
+		imagen_algoritmo/=np.max(imagen_algoritmo)
+
+		imagen_residuo = imagen_verdad - imagen_algoritmo
+
+		desviacion = np.std(imagen_residuo)
+		
+		return desviacion
 
 	@staticmethod
 	def create_mask(grid_shape, radius):
@@ -78,7 +100,7 @@ class OptimizacionParametrosContinuos:
 	# Para minimizar se debe colocar un signo menos
 
 	def psnr(self, img_fin):
-		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (251, 251), 42))
+		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (self.pixel_size, self.pixel_size), 42))
 		return psnr_result  # comentary mse need to be taken outside the object
 	
 	@staticmethod
@@ -110,8 +132,9 @@ class OptimizacionParametrosContinuos:
 
 		# Cargamos los archivos de entrada
 		header, fits_dimensions, fits_data, du, pixel_size = interferometric_data.fits_header_info()
-		# print(header,"\n\n",fits_dimensions)
-		uvw_coords, visibilities, weights = interferometric_data.process_ms_file()
+		# print(header,"\n\n",fits_dimensions)}
+
+		uvw_coords, visibilities, weights, dx = interferometric_data.process_ms_file()
 
 		################# Parametros
 		M = 1  # Multiplicador de Pixeles
@@ -235,22 +258,27 @@ class OptimizacionParametrosContinuos:
 			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, self.n_iter_gc)
 
 			reconstructed_image_cg = reconstructed_image.CG()
+
+			visibility_model = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(reconstructed_image_cg)))
+
+			gc_image_model = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model)))
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
-		
-			# Normalizar imagen para las métricas
-			synthesized_image = reconstructed_image_cg - reconstructed_image_cg.min()
-			synthesized_image = (synthesized_image / synthesized_image.max()) * 255
-			synthesized_image = synthesized_image.astype(np.uint8)
+
+			interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
+																						  ms_path=self.ms_path
+																						  )
+			_, _, data, _, _ = interferometric_data.fits_header_info()
+			
 
 			# Calcular métricas
-			brisque_score = self.compute_brisque(synthesized_image)
+			mse = self.comp_imagenes_model(data, np.real(gc_image_model))
 
 			print("El tiempo de ejecución fue de: ", time.time() - start_time)
 
 			cp.get_default_memory_pool().free_all_blocks()
 
 			# Minimizar ambas métricas (menores valores indican mejor calidad)
-			return brisque_score
+			return mse
 		
 		except Exception as e:
 			print(f"Error en el calculo: {e}")
@@ -266,6 +294,9 @@ class OptimizacionParametrosContinuos:
 			
 
 	def initialize_optimization(self, num_trials):
+
+		start_time = time.time()
+
 		# Configuración del estudio de Optuna
 		study = optuna.create_study(direction="minimize")
 		study.optimize(self.optimize_parameters, n_trials=num_trials)
@@ -273,13 +304,17 @@ class OptimizacionParametrosContinuos:
 		# Resultados
 		
 		print("Mejores parametros:", study.best_params)
-		print("Mejor valor (BRISQUE):", study.best_value)
+		print("Mejor valor (MSE):", study.best_value)
+
+
+		#show(convergencia)
 
 		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
 		fits_header, _, _, _, _ = interferometric_data.fits_header_info()
 
 		TITLE_1_OPTUNA = "continuum_optimimum_parameters_"
+		TITLE_1_PLOT = "continuum_convergence_plot_"
 
 		# Buscar el atributo OBJECT en el header
 		if 'OBJECT' in fits_header:
@@ -297,10 +332,34 @@ class OptimizacionParametrosContinuos:
 													self.image_size, 
 													object_name, 
 													"txt")
+		
+		TITLE_PLOT_RESULT = self.generate_filename(TITLE_1_PLOT,
+													self.poly_limits, 
+													self.division_limits, 
+													self.pixel_size,
+													self.image_size, 
+													object_name, 
+													"png")
+		
+		convergencia = plot_optimization_history(study)
+
+		convergencia.update_layout(
+			title="Optimización de parámetros para extrapolación de imagen",
+			xaxis_title="Intento",
+			yaxis_title="MSE",
+		)
+		show(convergencia)
+
+		# Cambiar ruta de guardado de graficos
+		convergencia.write_image(f"/disk2/stephan/batch_pruebas/batch_optim_param/img_graf_convergencia/{TITLE_PLOT_RESULT}")
+		
+		tiempo_total_opti = time.time() - start_time
+
+		print(f"El tiempo de ejecución de optimizacion fue de: {tiempo_total_opti:.2f} segundos ")
 
 		# Guardar el tiempo de ejecución en un archivo de texto
 		with open(TITLE_OPTUNA_RESULT , "w") as file:
-			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
+			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (MSE): {study.best_value}\n\n Tiempo total de ejecucion: {tiempo_total_opti:.2f}")
 
 		
 

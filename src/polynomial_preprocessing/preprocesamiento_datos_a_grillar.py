@@ -8,6 +8,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from pyralysis.convolution import PSWF1
 import astropy.units as unit
+from astropy.coordinates import Angle
 
 
 class PreprocesamientoDatosAGrillar:
@@ -67,14 +68,22 @@ class PreprocesamientoDatosAGrillar:
 
 		imsize = self.image_size
 
-		# Caso para cuando el pixel size es None
+		print("Resolución teórica: ", dataset.theo_resolution)
+
+		# Caso para cuando el pixel size es None.
 		if self.pixel_size is None:
-			print(dataset.theo_resolution)
-			dx = dataset.theo_resolution / 7
-			print(dx)
+			print("El valor de tamaño de pixel no ha sido ingresado, se usará el del archivo FITS (está en grados).")
+
+			_, _, _, _, pixels_size = self.fits_header_info()
+			print("Valor de FITS en grados: ", pixels_size)
+
+			# Se declara la unidad de ángulo
+			dx = pixels_size * unit.deg
+			
 
 		else:
-			dx = self.pixel_size * unit.rad
+			dx = self.pixel_size
+			print("Tamaño de pixel en radianes: ", dx)
 
 		pb = dataset.antenna.primary_beam
 		pb.cellsize = dx

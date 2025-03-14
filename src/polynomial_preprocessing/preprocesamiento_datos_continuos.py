@@ -28,6 +28,8 @@ class PreprocesamientoDatosContinuos:
 
 		dx = dataset.theo_resolution / 7
 
+		print("Resolución teórica de MS: ", dx)
+
 		# UV continuas
 		for i, ms in enumerate(dataset.ms_list):
 			uvw = ms.visibilities.uvw.data

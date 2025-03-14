@@ -1,4 +1,5 @@
 import numpy as np
+import cupy as cp
 import math
 import time
 import optuna
@@ -6,7 +7,8 @@ import torch
 import piq
 from polynomial_preprocessing import preprocesamiento_datos_a_grillar, procesamiento_datos_grillados
 from polynomial_preprocessing.image_synthesis import conjugate_gradient
-
+from optuna.visualization import plot_optimization_history
+from plotly.io import show
 
 class OptimizacionParametrosGrillados:
 	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100):
@@ -57,6 +59,18 @@ class OptimizacionParametrosGrillados:
 		return f"{prefix}{base_title}.{extension}"
 	
 	@staticmethod
+	def comp_imagenes_model(imagen_verdad, imagen_algoritmo):
+		imagen_verdad/=np.max(imagen_verdad)
+
+		imagen_algoritmo/=np.max(imagen_algoritmo)
+
+		imagen_residuo = imagen_verdad - imagen_algoritmo
+
+		desviacion = np.std(imagen_residuo)
+		
+		return desviacion
+	
+	@staticmethod
 	def create_mask(grid_shape, radius):
 		"""
 		Crea un arreglo de máscara basado en un filtro circular.
@@ -93,7 +107,7 @@ class OptimizacionParametrosGrillados:
 	# Para minimizar se debe colocar un signo menos
 
 	def psnr(self, img_fin):
-		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (251, 251), 47))
+		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (self.image_size, self.image_size), 47))
 		return psnr_result  # comentary mse need to be taken outside the object
 
 	@staticmethod
@@ -250,7 +264,6 @@ class OptimizacionParametrosGrillados:
 
 			weights_model = np.array(weights_mini)
 
-			
 
 			####################################### GENERACION DE GRAFICOS DE SALIDA #####################################
 
@@ -263,20 +276,25 @@ class OptimizacionParametrosGrillados:
 			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, self.n_iter_gc)
 
 			reconstructed_image_cg = reconstructed_image.CG()
-			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
-		
-			# Normalizar imagen para las métricas
-			synthesized_image = reconstructed_image_cg - reconstructed_image_cg.min()
-			synthesized_image = (synthesized_image / synthesized_image.max()) * 255
-			synthesized_image = synthesized_image.astype(np.uint8)
 
-			# Calcular métricas
-			brisque_score = self.compute_brisque(synthesized_image)
+			visibility_model = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(reconstructed_image_cg)))
+
+			gc_image_model = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model)))
+			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
+
+			interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+			_, _, data, _, _ = interferometric_data.fits_header_info()
+
+			mse = self.comp_imagenes_model(data, np.real(gc_image_model))
+
 
 			print("El tiempo de ejecución fue de: ", time.time() - start_time)
 
+			cp.get_default_memory_pool().free_all_blocks()
+
 			# Minimizar ambas métricas (menores valores indican mejor calidad)
-			return brisque_score
+			return mse
 		
 		except Exception as e:
 			print(f"Error en el cálculo: {e}")
@@ -291,6 +309,9 @@ class OptimizacionParametrosGrillados:
 		"""
 		
 	def initialize_optimization(self, num_trials):
+
+		start_time = time.time()
+
 		# Configuración del estudio de Optuna
 		study = optuna.create_study(direction="minimize")
 		study.optimize(self.optimize_parameters, n_trials=num_trials)
@@ -298,13 +319,17 @@ class OptimizacionParametrosGrillados:
 		# Resultados
 		
 		print("Mejores parametros:", study.best_params)
-		print("Mejor valor (BRISQUE):", study.best_value)
+		print("Mejor valor (MSE):", study.best_value)
+
+
+		
 
 		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
 		fits_header, _, _, _, _ = interferometric_data.fits_header_info()
 
 		TITLE_1_OPTUNA = "gridded_optimimum_parameters_"
+		TITLE_1_PLOT = "gridded_convergence_plot_"
 
 		# Buscar el atributo OBJECT en el header
 		if 'OBJECT' in fits_header:
@@ -323,8 +348,33 @@ class OptimizacionParametrosGrillados:
 													object_name, 
 													"txt")
 
+		TITLE_PLOT_RESULT = self.generate_filename(TITLE_1_PLOT,
+													self.poly_limits, 
+													self.division_limits, 
+													self.pixel_size,
+													self.image_size, 
+													object_name, 
+													"png")
+		
+		convergencia = plot_optimization_history(study)
+
+		convergencia.update_layout(
+			title="Optimización de parámetros para extrapolación de imagen",
+			xaxis_title="Intento",
+			yaxis_title="MSE",
+		)
+
+		show(convergencia)
+
+		# Cambiar ruta de guardado de graficos
+		convergencia.write_image(f"/disk2/stephan/batch_pruebas/batch_optim_param/img_graf_convergencia/{TITLE_PLOT_RESULT}")
+		
+		tiempo_total_opti = time.time() - start_time
+		
+		print(f"El tiempo de ejecución de optimizacion fue de: {tiempo_total_opti:.2f} segundos ")
+
 		# Guardar el tiempo de ejecución en un archivo de texto
 		with open(TITLE_OPTUNA_RESULT , "w") as file:
-			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (BRISQUE): {study.best_value}")
+			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (MSE): {study.best_value}\n\n Tiempo total de ejecucion: {tiempo_total_opti:.2f}")
 
 		

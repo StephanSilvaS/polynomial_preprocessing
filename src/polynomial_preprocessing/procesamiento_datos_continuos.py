@@ -6,6 +6,8 @@ import time
 import matplotlib.pyplot as plt
 from astropy.io import fits
 from numba import jit, complex128, float64, int32, prange
+import astropy.units as unit
+from astropy.coordinates import Angle
 
 
 class ProcesamientoDatosContinuos:
@@ -23,8 +25,13 @@ class ProcesamientoDatosContinuos:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
-			print("Pixel size of FITS: ", pixels_size)
-			self.pixel_size = pixels_size
+
+			# Se requiere transformar de grados a radianes el tam. de pixel.
+			angulo = Angle(pixels_size, unit='deg')
+
+			pixels_size_rad = angulo.radian * unit.rad
+			print("Pixel size of FITS: ", pixels_size_rad)
+			self.pixel_size = pixels_size_rad
 
 		if self.image_size is None:
 			fits_header = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
@@ -40,7 +47,7 @@ class ProcesamientoDatosContinuos:
 		start_time = time.time()
 		interferometric_data = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
-		fits_header, _, _, du, pixel_size = interferometric_data.fits_header_info()
+		fits_header, _, _, _, _ = interferometric_data.fits_header_info()
 
 		uvw_coords, visibilities, weights, _ = interferometric_data.process_ms_file()
 
@@ -63,7 +70,7 @@ class ProcesamientoDatosContinuos:
 		v_coords = np.array(uvw_coords[:, 1])  # Segunda columna
 		w_coords = np.array(uvw_coords[:, 2])  # Tercera columna (Para trabajo a futuro esta coord)
 
-		print("visbilidades dim. MS: ", visibilities.shape)
+		print("visibilidades dim. MS: ", visibilities.shape)
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
