@@ -5,28 +5,41 @@ import time
 import optuna
 import torch
 import piq
-from polynomial_preprocessing import preprocesamiento_datos_a_grillar, procesamiento_datos_grillados
-from polynomial_preprocessing.image_synthesis import conjugate_gradient
+import astropy.units as unit
+import matplotlib.pyplot as plt
+from polynomial_preprocessing.extrapolation_process import procesamiento_datos_grillados
+from polynomial_preprocessing.preprocessing import preprocesamiento_datos_a_grillar
+from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 from optuna.visualization import plot_optimization_history
 from plotly.io import show
+from astropy.coordinates import Angle
+
 
 class OptimizacionParametrosGrillados:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100, plots = False):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path # Ruta de archivo MS
 		self.poly_limits = poly_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
 		self.division_limits = division_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
 		self.pixel_size = pixel_size # Tamaño del Pixel
 		self.image_size = image_size # Cantidad de pixeles para la imagen
-		self.n_iter_gc = n_iter_gc
+		self.n_iter_gc = n_iter_gc # Número de iteraciones de Grad. Conjugado
+		self.plots = plots # Flag booleano para plotear graficos por pantalla
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																						 ms_path=self.ms_path,
 																						image_size=self.image_size)
 			_, _, _, _, pixels_size = pixel_size.fits_header_info()
-			print("Pixel size of FITS: ", pixels_size)
-			self.pixel_size = pixels_size
+			print("Pixel size of FITS on degree: ", pixels_size)
+			
+			# Se requiere transformar de grados a radianes el tam. de pixel.
+			angulo = Angle(pixels_size, unit='deg')
+
+			pixels_size_rad = angulo.radian * unit.rad
+
+			print("Pixel size of FITS on radians: ", pixels_size_rad)
+			self.pixel_size = pixels_size_rad
 
 		if self.image_size is None:
 			fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -39,8 +52,10 @@ class OptimizacionParametrosGrillados:
 
 		grid_visibilities, grid_weights, _, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																PreprocesamientoDatosAGrillar(self.fits_path,
-																								self.ms_path,																										
-																									image_size = self.image_size).
+																								self.ms_path,
+																								pixel_size = self.pixel_size,																										
+																								image_size = self.image_size,
+																								plots = True).
 																		  process_ms_file())
 		
 		self.gridded_visibilities = grid_visibilities
@@ -103,12 +118,30 @@ class OptimizacionParametrosGrillados:
 		mse = np.std(B) ** 2
 		print(mse)
 		return mse
+	
+	# img1, img2: dim(M,M)
+	# img1,img2: real!!!! comentary: do not work for complex 
+	# return mean quadratic diference
+	@staticmethod
+	def  mse(img1, img2):
+		N1, N2 = img1.shape
+		err = np.sum((img1 - img2)**2)/(N1*N2)
+		return err
+
+	def psnr(self, img_ini, img_fin):
+		return 20*math.log10(np.max(np.max(img_fin))/self.mse(img_ini, img_fin))
 
 	# Para minimizar se debe colocar un signo menos
-
+	"""
 	def psnr(self, img_fin):
 		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (self.image_size, self.image_size), 47))
 		return psnr_result  # comentary mse need to be taken outside the object
+	"""
+	
+	
+	@staticmethod
+	def norm(weights,x):
+		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
 
 	@staticmethod
 	def compute_brisque(image):
@@ -217,6 +250,8 @@ class OptimizacionParametrosGrillados:
 
 		visibilities_model = np.zeros((N1, N1), dtype=np.complex128)
 
+		print(visibilities_model)
+
 		print("New S:", S)
 		print("Division:", division)
 
@@ -273,7 +308,7 @@ class OptimizacionParametrosGrillados:
 							 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * N1 ** 2)
 			image_model = np.array(image_model.real)
 			
-			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model, self.n_iter_gc)
+			reconstructed_image = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/self.norm(weights_model.flatten(), visibilities_model.flatten()), self.n_iter_gc)
 
 			reconstructed_image_cg = reconstructed_image.CG()
 
@@ -286,8 +321,17 @@ class OptimizacionParametrosGrillados:
 																							   ms_path=self.ms_path)
 			_, _, data, _, _ = interferometric_data.fits_header_info()
 
+			if self.plots == True:
+				title="Image model + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gc_image_model))
+				plt.colorbar(im)
+
+				plt.show()
+
+			#psnr_result = self.psnr(data, np.real(gc_image_model))
+
 			mse = self.comp_imagenes_model(data, np.real(gc_image_model))
 
+			print(mse)
 
 			print("El tiempo de ejecución fue de: ", time.time() - start_time)
 
@@ -298,6 +342,7 @@ class OptimizacionParametrosGrillados:
 		
 		except Exception as e:
 			print(f"Error en el cálculo: {e}")
+			cp.get_default_memory_pool().free_all_blocks()
 			return float("inf")
 		
 		"""
@@ -319,7 +364,7 @@ class OptimizacionParametrosGrillados:
 		# Resultados
 		
 		print("Mejores parametros:", study.best_params)
-		print("Mejor valor (MSE):", study.best_value)
+		print("Mejor valor (PSNR):", study.best_value)
 
 
 		
@@ -361,10 +406,12 @@ class OptimizacionParametrosGrillados:
 		convergencia.update_layout(
 			title="Optimización de parámetros para extrapolación de imagen",
 			xaxis_title="Intento",
-			yaxis_title="MSE",
+			yaxis_title="PSNR",
 		)
 
-		show(convergencia)
+		if self.plots == True:
+
+			show(convergencia)
 
 		# Cambiar ruta de guardado de graficos
 		convergencia.write_image(f"/disk2/stephan/batch_pruebas/batch_optim_param/img_graf_convergencia/{TITLE_PLOT_RESULT}")
@@ -375,6 +422,6 @@ class OptimizacionParametrosGrillados:
 
 		# Guardar el tiempo de ejecución en un archivo de texto
 		with open(TITLE_OPTUNA_RESULT , "w") as file:
-			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (MSE): {study.best_value}\n\n Tiempo total de ejecucion: {tiempo_total_opti:.2f}")
+			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (PSNR): {study.best_value}\n\n Tiempo total de ejecucion: {tiempo_total_opti:.2f}")
 
 		
