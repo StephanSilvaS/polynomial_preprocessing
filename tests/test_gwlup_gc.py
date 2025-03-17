@@ -1,6 +1,6 @@
-from polynomial_preprocessing import procesamiento_datos_continuos, procesamiento_datos_grillados
+from polynomial_preprocessing.extrapolation_process import procesamiento_datos_continuos, procesamiento_datos_grillados
 from polynomial_preprocessing.optimization import optimizacion_parametros_continuos, optimizacion_parametros_grillados
-from polynomial_preprocessing.image_synthesis import conjugate_gradient
+from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 import numpy as np
 from scipy.interpolate import griddata
 from astropy.io import fits

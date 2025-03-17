@@ -1,5 +1,5 @@
-from polynomial_preprocessing import procesamiento_datos_continuos
-from polynomial_preprocessing.image_synthesis import gradiente_conjugado_no_lineal, conjugate_gradient
+from polynomial_preprocessing.extrapolation_process import procesamiento_datos_continuos
+from polynomial_preprocessing.image_reconstruction import gradiente_conjugado_no_lineal, conjugate_gradient
 import numpy as np
 from matplotlib import pyplot as plt
 from astropy.io import fits

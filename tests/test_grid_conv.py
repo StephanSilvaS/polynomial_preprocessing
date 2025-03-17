@@ -1,5 +1,5 @@
-from polynomial_preprocessing import preprocesamiento_datos_a_grillar
-from polynomial_preprocessing.image_synthesis import conjugate_gradient
+from polynomial_preprocessing.preprocessing import preprocesamiento_datos_a_grillar
+from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 import numpy as np
 from astropy.io import fits
 import matplotlib.pyplot as plt

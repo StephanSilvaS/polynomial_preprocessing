@@ -5,8 +5,9 @@ import time
 import optuna
 import torch
 import piq
-from polynomial_preprocessing import preprocesamiento_datos_continuos, procesamiento_datos_continuos
-from polynomial_preprocessing.image_synthesis import conjugate_gradient
+from polynomial_preprocessing.extrapolation_process import procesamiento_datos_continuos
+from polynomial_preprocessing.preprocessing import preprocesamiento_datos_continuos
+from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 from optuna.visualization import plot_optimization_history
 from astropy.coordinates import Angle
 import astropy.units as unit
