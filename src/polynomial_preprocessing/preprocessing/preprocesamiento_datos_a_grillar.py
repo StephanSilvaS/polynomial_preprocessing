@@ -148,6 +148,10 @@ class PreprocesamientoDatosAGrillar:
 			*[dirty_mapper.uvgridded_visibilities, dirty_mapper.uvgridded_weights]
 		)
 
+		print("dirty_mapper.uvgridded_visibilities: ",dirty_mapper.uvgridded_visibilities.shape)
+
+		print("dirty_mapper.uvgridded_weights: ", dirty_mapper.uvgridded_weights.shape)
+
 		# UV grilladas
 		m, n = dirty_image.shape
 		du = 1 / (n * dx)

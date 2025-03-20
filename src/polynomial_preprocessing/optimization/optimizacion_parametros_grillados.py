@@ -250,7 +250,6 @@ class OptimizacionParametrosGrillados:
 
 		visibilities_model = np.zeros((N1, N1), dtype=np.complex128)
 
-		print(visibilities_model)
 
 		print("New S:", S)
 		print("Division:", division)
