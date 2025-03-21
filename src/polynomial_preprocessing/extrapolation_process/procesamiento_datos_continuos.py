@@ -7,16 +7,18 @@ import matplotlib.pyplot as plt
 from astropy.io import fits
 from numba import jit, complex128, float64, int32, prange
 import astropy.units as unit
+from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 
 
 class ProcesamientoDatosContinuos:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, verbose = True, plots = False):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, n_iter_gc = 15, verbose = True, plots = False):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
 		self.division_sigma = division_sigma
 		self.pixel_size = pixel_size
 		self.image_size = image_size
+		self.n_iter_gc = n_iter_gc
 		self.verbose = verbose
 		self.plots = plots
 
@@ -65,6 +67,7 @@ class ProcesamientoDatosContinuos:
 		TITLE_1_DIRTY_IMAGE = "dirty_image_model_natural_"
 		TITLE_1_WEIGHTS = "weights_model_natural_"
 		TITLE_1_TIME = "execution_time_"
+		TITLE_1_RECONSTRUCTED = "continuum_reconstructed_image_"
 
 		u_coords = np.array(uvw_coords[:, 0])  # Primera columna
 		v_coords = np.array(uvw_coords[:, 1])  # Segunda columna
@@ -190,27 +193,27 @@ class ProcesamientoDatosContinuos:
 						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
 		if self.plots == True:
-			title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
+			title = f"Image {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
 			plt.colorbar(im)
 
-			title = "Visibility model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 			plt.colorbar(im)
 
-			title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+			title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 			plt.colorbar(im)
 
 			plt.show()
 
 		if self.verbose == True:
-
-			# Buscar el atributo OBJECT en el header
-			if 'OBJECT' in fits_header:
-				object_name = fits_header['OBJECT']
-				print(f"El objeto en el archivo FITS es: {object_name}")
-			else:
-				object_name = "no_object_name"
-				print("El atributo OBJECT no se encuentra en el header.")
 
 			# Generar nombres de archivos
 			TITLE_VISIBILITIES_RESULT = self.generate_filename(TITLE_1_TIME, 
@@ -220,6 +223,20 @@ class ProcesamientoDatosContinuos:
 														pixel_num, 
 														object_name, 
 														"txt")
+			
+			gc_image_data = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/self.norm(weights_model.flatten(), visibilities_model.flatten()), self.n_iter_gc).CG()
+
+			visibility_model_cg = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(gc_image_data)))
+
+			reconstructed_image = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model_cg)))
+
+			if self.plots == True:
+			
+				title=f"Extrapolacion {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(reconstructed_image))
+				plt.colorbar(im)
+
+				title=f"Visibility model {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibility_model_cg))
+				plt.colorbar(im)
 
 			# Guardar el tiempo de ejecución en un archivo de texto
 			with open(TITLE_VISIBILITIES_RESULT , "w") as file:
@@ -249,11 +266,20 @@ class ProcesamientoDatosContinuos:
 												   pixel_num, 
 												   object_name, 
 												   "fits")
+			
+			TITLE_RECONSTRUCTED_IMAGE_FITS = self.generate_filename(TITLE_1_RECONSTRUCTED, 
+													num_polynomial, 
+													division,
+													pixel_size, 
+													pixel_num, 
+													object_name, 
+													"fits")
 
 			# Guardar archivos
 			np.savez(TITLE_VISIBILITIES_RESULT, visibilities_model)
 			np.savez(TITLE_WEIGHTS_RESULT, weights_model)
 			fits.writeto(TITLE_DIRTY_IMAGE_FITS, image_model, fits_header, overwrite=True)
+			fits.writeto(TITLE_RECONSTRUCTED_IMAGE_FITS, np.real(reconstructed_image), fits_header, overwrite=True)
 
 
 		return image_model, visibilities_model, weights_model, u_target, v_target

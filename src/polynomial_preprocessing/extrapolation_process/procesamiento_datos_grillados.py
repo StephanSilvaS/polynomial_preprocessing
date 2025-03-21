@@ -13,16 +13,18 @@ from dask import delayed, compute
 from dask.distributed import Client
 from numba import jit, prange
 from dask.distributed import Client, LocalCluster
+from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 
 
 class ProcesamientoDatosGrillados:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, verbose = True, plots = False):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, n_iter_gc = 15, verbose = True, plots = False):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
 		self.division_sigma = division_sigma
 		self.pixel_size = pixel_size
 		self.image_size = image_size
+		self.n_iter_gc = n_iter_gc
 		self.verbose = verbose
 		self.plots = plots
 
@@ -71,6 +73,9 @@ class ProcesamientoDatosGrillados:
 		
 		return gridded_visibilities, gridded_weights, pixel_size,  grid_u, grid_v
 
+	@staticmethod
+	def norm(weights,x):
+		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
 
 	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
 
@@ -102,48 +107,30 @@ class ProcesamientoDatosGrillados:
 		TITLE_1_DIRTY_IMAGE = "dirty_image_gridded_model_natural_"
 		TITLE_1_WEIGHTS = "gridded_weights_model_natural_"
 		TITLE_1_TIME = "execution_time_gridded_"
+		TITLE_1_RECONSTRUCTED = "gridded_reconstructed_image_"
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
-		u_ind, v_ind = np.nonzero(gridded_visibilities[0])
-		print("gridded_visibilities: ", gridded_visibilities)
-		print("gridded_visibilities[0]: ", gridded_visibilities[0])
-		print("u_ind: ", u_ind)
-		print("v_ind: ", v_ind)
-		print("Shape NonZero de U: ", u_ind.shape)
-		print("Shape NonZero de V: ", v_ind.shape)
+		# u_ind, v_ind = np.nonzero(gridded_visibilities[0])
+		u_ind_w, v_ind_w = np.nonzero(gridded_weights[0]) # Se usan coordenadas no nulas de los pesos grillados.
+
 		gridded_visibilities_2d = gridded_visibilities[0].flatten()
 		gridded_weights_2d = gridded_weights[0].flatten()  
 
-		print("gridded_visibilities_2d: ", gridded_visibilities_2d.shape)
-
-		print("gridded_weights_2d: ", gridded_weights_2d.shape)
-
-		print("grid_u: ", grid_u.shape)
-
-		print("grid_v: ", grid_v.shape)
-
 		# Filtramos por los valores no nulos
+
 		nonzero_indices = np.nonzero(gridded_weights_2d)
-		print("Indice Non Zero de Pesos:", nonzero_indices)
-		print("Indice Non Zero de Pesos [0]:", nonzero_indices[0])
-		print("Shape de Indice Non Zero de Pesos [0]:", nonzero_indices[0].shape)
+
 		gv_sparse = gridded_visibilities_2d[nonzero_indices]
 		gw_sparse = gridded_weights_2d[nonzero_indices]
-
-		print("gv_sparse.shape 1: ", gv_sparse.shape)
-		print("gw_sparse.shape 1: ", gw_sparse.shape)
 
 		# Normalizacion de los datos
 
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
 
-		print("gv_sparse.shape 2: ", gv_sparse.shape)
-		print("gw_sparse.shape 2: ", gw_sparse.shape)
-
-		u_data = grid_u[u_ind]
-		v_data = grid_v[v_ind]
+		u_data = grid_u[u_ind_w]
+		v_data = grid_v[v_ind_w]
 
 		print("u_data : ", u_data.shape)
 
@@ -193,7 +180,7 @@ class ProcesamientoDatosGrillados:
 			plt.show()
 			
 		
-		max_memory = 120000000
+		max_memory = cp.cuda.Device(0).mem_info[1]
 		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -226,12 +213,6 @@ class ProcesamientoDatosGrillados:
 		# print(gw_sparse.dtype)
 		# print(gv_sparse.dtype)
 		# print(type(chunk_data))
-		"""
-		# Inicializa Dask con múltiples workers
-		client = Client(n_workers=mp.cpu_count(), threads_per_worker=12, memory_limit="6GB")
-		print("mp.cpu_count():", mp.cpu_count())
-		print(client)
-		"""
 
 		# Obtencion de los datos de la salida con G-S
 
@@ -275,13 +256,7 @@ class ProcesamientoDatosGrillados:
 
 		weights_model = np.array(weights_mini)
 
-		# Finalizar el contador de tiempo
-		end_time = time.time()
 
-		# Calcular el tiempo de ejecución
-		execution_time = end_time - start_time
-
-		print(f"Tiempo de ejecución: {execution_time:.2f} segundos")
 
 		####################################### GENERACION DE GRAFICOS DE SALIDA #####################################
 
@@ -291,16 +266,26 @@ class ProcesamientoDatosGrillados:
 						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
+
+
 		print("residual.shape: ", residual.shape)
 
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
 		if self.plots == True:
-			title = "Image model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
+			title = f"Image {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
 			plt.colorbar(im)
 
-			title = "Visibility model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 			plt.colorbar(im)
 
-			title = "Weights model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+			title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 			plt.colorbar(im)
 
 			#title="Residual model (division sigma: "+str(division)+")"; fig=plt.figure(title); plt.title(title); im=plt.imshow(residual_model)
@@ -308,15 +293,21 @@ class ProcesamientoDatosGrillados:
 
 			plt.show()
 
-		if self.verbose == True:
+		gc_image_data = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/self.norm(weights_model.flatten(), visibilities_model.flatten()), self.n_iter_gc).CG()
 
-			# Buscar el atributo OBJECT en el header
-			if 'OBJECT' in fits_header:
-				object_name = fits_header['OBJECT']
-				print(f"El objeto en el archivo FITS es: {object_name}")
-			else:
-				object_name = "no_object_name"
-				print("El atributo OBJECT no se encuentra en el header.")
+		visibility_model_cg = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(gc_image_data)))
+
+		reconstructed_image = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model_cg)))
+
+		# Finalizar el contador de tiempo
+		end_time = time.time()
+
+		# Calcular el tiempo de ejecución
+		execution_time = end_time - start_time
+
+		print(f"Tiempo de ejecución: {execution_time:.2f} segundos")
+
+		if self.verbose == True:
 
 			# Generar nombres de archivos
 			TITLE_TIME_RESULT = self.generate_filename(TITLE_1_TIME, 
@@ -326,6 +317,14 @@ class ProcesamientoDatosGrillados:
 														pixel_num, 
 														object_name, 
 														"txt")
+			
+			if self.plots == True:
+			
+				title=f"Extrapolacion {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(reconstructed_image))
+				plt.colorbar(im)
+
+				title=f"Visibility model {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibility_model_cg))
+				plt.colorbar(im)
 
 			# Guardar el tiempo de ejecución en un archivo de texto
 			with open(TITLE_TIME_RESULT , "w") as file:
@@ -355,13 +354,22 @@ class ProcesamientoDatosGrillados:
 												   pixel_num, 
 												   object_name, 
 												   "fits")
+			
+			TITLE_RECONSTRUCTED_IMAGE_FITS = self.generate_filename(TITLE_1_RECONSTRUCTED, 
+													num_polynomial, 
+													division,
+													pixel_size, 
+													pixel_num, 
+													object_name, 
+													"fits")
 
 			# Guardar archivos
 			np.savez(TITLE_VISIBILITIES_RESULT, visibilities_model)
 			np.savez(TITLE_WEIGHTS_RESULT, weights_model)
 			fits.writeto(TITLE_DIRTY_IMAGE_FITS, image_model, fits_header, overwrite=True)
+			fits.writeto(TITLE_RECONSTRUCTED_IMAGE_FITS, np.real(reconstructed_image), fits_header, overwrite=True)
 
-		return image_model, visibilities_model, weights_model, u_target, v_target
+		return image_model, visibilities_model, weights_model, u_target, v_target, np.real(reconstructed_image), np.absolute(visibility_model_cg)
 
 	# Función para generar nombres de archivos
 	@staticmethod
@@ -571,50 +579,6 @@ class ProcesamientoDatosGrillados:
 
 		return final_norm
 
-	def normalize_initial_polynomials_gpu(self, w, P, P_target, V, s, chunk_data):
-		"""
-		Normaliza los polinomios iniciales P y P_target usando CuPy para operaciones en GPU.
-
-		Parámetros:
-		- w: CuPy array 1D de pesos complejos.
-		- P: CuPy array 3D de polinomios iniciales.
-		- P_target: CuPy array 3D de polinomios objetivos.
-		- V: CuPy array 3D de enteros para validación.
-		- s: Dimensión de los polinomios.
-		- chunk_data: Tamaño de los bloques para procesamiento.
-
-		Retorna:
-		- P: CuPy array normalizado.
-		- P_target: CuPy array normalizado.
-		"""
-		# Asegurarse de que todos los datos estén en CuPy
-		w = cp.asarray(w)
-		P = cp.asarray(P)
-		P_target = cp.asarray(P_target)
-
-		# Calcular las normas para la normalización
-		no_data = self.norm2x2_gpu(w, P, chunk_data)
-
-		# Evitar divisiones por cero asignando 1 a los elementos de no_data que son cero
-		no_data[no_data == 0] = 1
-
-		# Normalizar P y P_target
-		P = P / no_data
-		P_target = P_target / no_data
-
-		# Limpieza de valores NaN e Inf
-		P = cp.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
-		P_target = cp.nan_to_num(P_target, nan=0.0, posinf=0.0, neginf=0.0)
-
-		del w
-
-		# Se libera la memoria utilizada por la GPU, para evitar un sobreconsumo de
-		# esta (y se restringa el uso de Google Colab).
-		mempool = cp.get_default_memory_pool()
-		mempool.free_all_blocks()
-
-		return P, P_target
-
 	def gram_schmidt_and_estimation_gpu(self, w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2,
 										max_rep,
 										chunk_data):
@@ -733,226 +697,6 @@ class ProcesamientoDatosGrillados:
 				cp.get_default_memory_pool().free_all_blocks()
 
 		return final_dot
-	
-	@staticmethod
-	def process_chunk(chunk1, chunk2, matrix, weights, pol, chunk_data):
-		"""
-		Procesa un bloque de la matriz para calcular el producto punto ponderado.
-		"""
-		N1, N2, n = matrix.shape
-		start1 = chunk1 * chunk_data
-		end1 = min((chunk1 + 1) * chunk_data, N1)
-		start2 = chunk2 * chunk_data
-		end2 = min((chunk2 + 1) * chunk_data, N2)
-
-		sub_matrix = matrix[start1:end1, start2:end2, :]
-		subsum = np.einsum('ijk,k->ij', sub_matrix * weights, np.conjugate(pol))
-		return start1, end1, start2, end2, subsum
-
-	@staticmethod
-	def dot2x2_cpu(weights, matrix, pol, chunk_data):
-		"""
-		Calcula el producto punto ponderado de una matriz y un polinomio en CPU.
-		"""
-		N1, N2, n = matrix.shape
-		final_dot = np.zeros((N1, N2, 1), dtype=np.complex128)
-
-		pool = mp.Pool(mp.cpu_count())
-		results = pool.starmap(
-			ProcesamientoDatosGrillados.process_chunk,
-			[(chunk1, chunk2, matrix, weights, pol, chunk_data) 
-			 for chunk1 in range(N1 // chunk_data + 1) 
-			 for chunk2 in range(N2 // chunk_data + 1)]
-		)
-		pool.close()
-		pool.join()
-
-		for start1, end1, start2, end2, subsum in results:
-			final_dot[start1:end1, start2:end2, 0] += subsum
-
-		return final_dot
-
-	def gram_schmidt_and_estimation_cpu(self, w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep, chunk_data):
-		"""
-		Realiza el proceso de ortogonalización de Gram-Schmidt y estimación usando CPU.
-		"""
-		for k in range(s):  # Nivel de grado de los polinomios
-			for j in range(k + 1):  # Grado de cada polinomio en la contradiagonal
-				for repeat in range(max_rep):
-					if repeat > 0 or (k == 0 and j == 0):
-						# Normalización
-						no = np.sqrt(np.sum(w * np.abs(P[k - j, j, :]) ** 2))
-						if no != 0:
-							P[k - j, j, :] /= no
-							P_target[k - j, j, :] /= no
-
-						# Almacenar polinomios iniciales
-						if k == 0 and j == 0:
-							D = np.array(P[k - j, j, :])
-							D_target = np.array(P_target[k - j, j, :])
-							V[k - j, j, :] = 0
-
-					# Evitar normalización innecesaria si el grado es superior a 1
-					if j == 1 and k > 0 and repeat == 0:
-						no_data = self.norm2x2(w, P, chunk_data)
-						V_mask = np.where(V == 0, 1, 0)  # Crear una máscara para V
-						no_data *= V_mask  # Aplicar la máscara
-						P /= np.where(no_data != 0, no_data, 1)
-						P_target /= np.where(no_data != 0, no_data, 1)
-
-					# Ortogonalización Gram-Schmidt
-					if repeat == 0:
-						dot_data = self.dot2x2_cpu(w, P * V, D, chunk_data)
-						P -= dot_data * D
-						P_target -= dot_data * D_target
-
-					# Limpieza de valores NaN e Inf
-					P = np.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
-					P_target = np.nan_to_num(P_target, nan=0.0, posinf=0.0, neginf=0.0)
-
-				# Actualización de V y cálculo de extrapolación
-				V[k - j, j, :] = 0
-				D = np.array(P[k - j, j, :])
-				D_target = np.array(P_target[k - j, j, :])
-				M = np.sum(w * residual.flatten() * np.conjugate(P[k - j, j, :]))
-				final_data += M * P_target[k - j, j, :]
-				residual -= M * P[k - j, j, :]
-				err += np.abs(P_target[k - j, j, :]) ** 2
-
-		# Aplicar el criterio de selección sigma2
-		final_data[err > sigma2] = 0
-
-		return final_data, residual, err, P_target, P
-	
-	# Con esto:
-	@staticmethod
-	def custom_nan_to_num(x):
-		return np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
-
-	def gram_schmidt_and_estimation_dask(self, w, P, P_target, V, D, D_target, residual, final_data, err, s, sigma2, max_rep, chunk_data):
-		"""
-		Realiza el proceso de ortogonalización de Gram-Schmidt y estimación usando Dask para manejo distribuido.
-		"""
-		# Iniciar un cluster local de Dask
-		cluster = LocalCluster(n_workers=16, threads_per_worker=2, memory_limit='16GB')  # Ajustar según tu servidor
-		client = Client(cluster)
-
-		# Convertir los arrays a Dask arrays
-		w = da.from_array(w, chunks=chunk_data)
-		P = da.from_array(P, chunks=(chunk_data, chunk_data, chunk_data))
-		P_target = da.from_array(P_target, chunks=(chunk_data, chunk_data, chunk_data))
-		V = da.from_array(V, chunks=(chunk_data, chunk_data, 1))
-		D = da.from_array(D, chunks=chunk_data)
-		D_target = da.from_array(D_target, chunks=chunk_data)
-		residual = da.from_array(residual, chunks=chunk_data)
-		final_data = da.from_array(final_data, chunks=chunk_data)
-		err = da.from_array(err, chunks=chunk_data)
-
-		for k in range(s):  # Nivel de grado de los polinomios
-			for j in range(k + 1):  # Grado de cada polinomio en la contradiagonal
-				for repeat in range(max_rep):
-					if repeat > 0 or (k == 0 and j == 0):
-						# Normalización
-						no = da.sqrt(da.sum(w * da.abs(P[k - j, j, :]) ** 2))
-						if no != 0:
-							P[k - j, j, :] /= no
-							P_target[k - j, j, :] /= no
-
-						# Almacenar polinomios iniciales
-						if k == 0 and j == 0:
-							D = da.array(P[k - j, j, :])
-							D_target = da.array(P_target[k - j, j, :])
-							V[k - j, j, :] = 0
-
-					# Evitar normalización innecesaria si el grado es superior a 1
-					if j == 1 and k > 0 and repeat == 0:
-						no_data = self.norm2x2_dask(w, P, chunk_data)
-						V_mask = da.where(V == 0, 1, 0)  # Crear una máscara para V
-						no_data *= V_mask  # Aplicar la máscara
-						P /= da.where(no_data != 0, no_data, 1)
-						P_target /= da.where(no_data != 0, no_data, 1)
-
-					# Ortogonalización Gram-Schmidt
-					if repeat == 0:
-						dot_data = self.dot2x2_dask(w, P * V, D, chunk_data)
-						P -= dot_data * D
-						P_target -= dot_data * D_target
-
-					# Limpieza de valores NaN e Inf
-					P = da.map_blocks(self.custom_nan_to_num, P)
-					P_target = da.map_blocks(self.custom_nan_to_num, P_target)
-
-				# Actualización de V y cálculo de extrapolación
-				V[k - j, j, :] = 0
-				D = da.array(P[k - j, j, :])
-				D_target = da.array(P_target[k - j, j, :])
-				M = da.sum(w * residual.flatten() * da.conjugate(P[k - j, j, :]))
-				final_data += M * P_target[k - j, j, :]
-				residual -= M * P[k - j, j, :]
-				err += da.abs(P_target[k - j, j, :]) ** 2
-
-		# Aplicar el criterio de selección sigma2
-		final_data[err > sigma2] = 0
-
-		# Convertir los resultados de vuelta a NumPy
-		final_data = final_data.compute()
-		residual = residual.compute()
-		err = err.compute()
-		P_target = P_target.compute()
-		P = P.compute()
-
-		# Cerrar el cluster de Dask
-		client.close()
-		cluster.close()
-
-		return final_data, residual, err, P_target, P
-
-	def norm2x2_dask(self, weights, matrix, chunk_data):
-		"""
-		Calcula la norma ponderada de una matriz usando Dask.
-		"""
-		N1, N2, n = matrix.shape
-		final_norm = da.zeros((N1, N2, 1), dtype=np.complex128)
-
-		for chunk1 in range(N1 // chunk_data + 1):
-			for chunk2 in range(N2 // chunk_data + 1):
-				start1 = chunk1 * chunk_data
-				end1 = min((chunk1 + 1) * chunk_data, N1)
-				start2 = chunk2 * chunk_data
-				end2 = min((chunk2 + 1) * chunk_data, N2)
-
-				sub_m = matrix[start1:end1, start2:end2, :]
-				subsum = da.sum(weights * da.abs(sub_m) ** 2, axis=2)
-				subsum = da.sqrt(subsum)
-				final_norm[start1:end1, start2:end2, 0] = subsum
-
-		return final_norm
-
-
-	def dot2x2_dask(self, weights, matrix, pol, chunk_data):
-		"""
-		Calcula el producto punto ponderado de una matriz y un polinomio usando Dask.
-		"""
-		N1, N2, n = matrix.shape
-		final_dot = da.zeros((N1, N2, 1), dtype=np.complex128)
-
-		for chunk1 in range(N1 // chunk_data + 1):
-			for chunk2 in range(N2 // chunk_data + 1):
-				start1 = chunk1 * chunk_data
-				end1 = min((chunk1 + 1) * chunk_data, N1)
-				start2 = chunk2 * chunk_data
-				end2 = min((chunk2 + 1) * chunk_data, N2)
-
-				sub_matrix = matrix[start1:end1, start2:end2, :]
-				
-				# Usar NumPy para la conjugación compleja
-				pol_conj = np.conjugate(pol)  # pol_conj ya es un Dask Array
-				
-				# Realizar el producto punto con Dask
-				subsum = da.einsum('ijk,k->ij', sub_matrix * weights, pol_conj)
-				final_dot[start1:end1, start2:end2, 0] += subsum
-
-		return final_dot
 
 	def recurrence2d(self, z_target, z, weights, data, size, s, division_sigma, chunk_data):
 		z = np.array(z)
@@ -971,12 +715,6 @@ class ProcesamientoDatosGrillados:
 		D = np.zeros(z.size, dtype=np.complex128)
 		D_target = np.zeros(size, dtype=np.complex128)
 		err = np.zeros(shape=(size), dtype=float)
-
-		print("Tamaños antes de llamar a initialize_polynomials_cpu:")
-		print("z.shape:", z.shape)
-		print("z_target.shape:", z_target.shape)
-		print("w.shape:", w.shape)
-		print("s:", s)
 
 		# Inicialización de matrices polinómicas P y P_target
 		P, P_target = self.initialize_polynomials_cpu(z, z_target, w, s)

@@ -1,22 +1,12 @@
 import numpy as np
-from math import e, pi
 from array import *
 from scipy import optimize
-from scipy.signal import convolve2d as conv
 
 class ConjugateGradient:
 	def __init__(self, Vo, Wo, n):
 		self.Vo = Vo
 		self.Wo = Wo
 		self.n = n
-
-	@staticmethod
-	def gauss(ini,dim):
-		array_x = np.linspace(-ini,ini,dim)
-		array_x = np.reshape(array_x,(dim,1))
-		array_y = np.reshape(array_x,(1,dim))
-		img = np.exp(-pi*(array_x**2 + array_y**2))**2
-		return(img)
 
 	@staticmethod
 	def f_alpha(x:float,Vo,Im,Wo,s):
@@ -34,10 +24,6 @@ class ConjugateGradient:
 		
 		grad = -1*np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.Wo*(self.Vo - Vm))))
 
-		
-		#print("Max grad:",np.max(grad))
-		#title="grad"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(grad))
-		#plt.colorbar(im)
 		s = -grad
 		
 		grad_old = np.array(grad)
@@ -76,7 +62,7 @@ class ConjugateGradient:
 			grad[np.isnan(grad) == True] = 0
 
 		return Im
-
+	
 	@staticmethod
 	def norm(weights,x):
 		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))

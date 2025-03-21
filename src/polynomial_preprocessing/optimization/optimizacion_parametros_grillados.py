@@ -195,7 +195,9 @@ class OptimizacionParametrosGrillados:
 
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
-		u_ind, v_ind = np.nonzero(self.gridded_visibilities[0])
+
+		u_ind_w, v_ind_w = np.nonzero(self.gridded_weights[0]) # Se usan coordenadas no nulas de los pesos grillados.
+		
 		gridded_visibilities_2d = self.gridded_visibilities[0].flatten()  # (1,251,251)->(251,251)
 		gridded_weights_2d = self.gridded_weights[0].flatten()  # (1,251,251)->(251,251)
 
@@ -209,8 +211,8 @@ class OptimizacionParametrosGrillados:
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
 
-		u_data = self.grid_u[u_ind]
-		v_data = self.grid_v[v_ind]
+		u_data = self.grid_u[u_ind_w]
+		v_data = self.grid_v[v_ind_w]
 
 		du = 1 / (N1 * pixel_size)
 
@@ -363,10 +365,7 @@ class OptimizacionParametrosGrillados:
 		# Resultados
 		
 		print("Mejores parametros:", study.best_params)
-		print("Mejor valor (PSNR):", study.best_value)
-
-
-		
+		print("Mejor valor (MSE):", study.best_value)
 
 		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
@@ -405,7 +404,7 @@ class OptimizacionParametrosGrillados:
 		convergencia.update_layout(
 			title="Optimización de parámetros para extrapolación de imagen",
 			xaxis_title="Intento",
-			yaxis_title="PSNR",
+			yaxis_title="MSE",
 		)
 
 		if self.plots == True:
@@ -421,6 +420,6 @@ class OptimizacionParametrosGrillados:
 
 		# Guardar el tiempo de ejecución en un archivo de texto
 		with open(TITLE_OPTUNA_RESULT , "w") as file:
-			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (PSNR): {study.best_value}\n\n Tiempo total de ejecucion: {tiempo_total_opti:.2f}")
+			file.write(f"Mejores parametros: {study.best_params}\n\n Mejor valor (MSE): {study.best_value}\n\n Tiempo total de ejecucion: {tiempo_total_opti:.2f}")
 
 		

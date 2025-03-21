@@ -161,4 +161,10 @@ class PreprocesamientoDatosAGrillar:
 
 		print("dx a entregar: ", dx)
 
+		#u, v = np.meshgrid(u, v)
+
+		#print("u: ", u)
+		#print("v: ", v)
+
+
 		return gridded_visibilities, gridded_weights, dx, u, v
