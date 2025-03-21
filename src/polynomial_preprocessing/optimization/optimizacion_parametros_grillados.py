@@ -55,7 +55,7 @@ class OptimizacionParametrosGrillados:
 																								self.ms_path,
 																								pixel_size = self.pixel_size,																										
 																								image_size = self.image_size,
-																								plots = True).
+																								plots = self.plots).
 																		  process_ms_file())
 		
 		self.gridded_visibilities = grid_visibilities

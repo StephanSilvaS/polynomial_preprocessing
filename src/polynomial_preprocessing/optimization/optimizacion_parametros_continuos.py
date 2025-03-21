@@ -14,14 +14,15 @@ import astropy.units as unit
 from plotly.io import show
 
 class OptimizacionParametrosContinuos:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100, plots = False):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path  # Ruta de archivo MS
 		self.poly_limits = poly_limits  # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
 		self.division_limits = division_limits  # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [1e-3, 1e0])
 		self.pixel_size = pixel_size  # Tamaño del Pixel
 		self.image_size = image_size  # Cantidad de pixeles para la imagen
-		self.n_iter_gc = n_iter_gc
+		self.n_iter_gc = n_iter_gc # Numero de iteraciones de GC
+		self.plots = plots # Flag para definir si se muestran graficos por pantalla
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_continuos.PreprocesamientoDatosContinuos(fits_path=self.fits_path,
@@ -349,7 +350,9 @@ class OptimizacionParametrosContinuos:
 			xaxis_title="Intento",
 			yaxis_title="MSE",
 		)
-		show(convergencia)
+
+		if self.plots == True:
+			show(convergencia)
 
 		# Cambiar ruta de guardado de graficos
 		convergencia.write_image(f"/disk2/stephan/batch_pruebas/batch_optim_param/img_graf_convergencia/{TITLE_PLOT_RESULT}")
