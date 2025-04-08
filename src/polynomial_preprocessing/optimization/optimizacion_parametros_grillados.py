@@ -13,10 +13,11 @@ from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 from optuna.visualization import plot_optimization_history
 from plotly.io import show
 from astropy.coordinates import Angle
+from astropy.io import fits
 
 
 class OptimizacionParametrosGrillados:
-	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100, plots = False):
+	def __init__(self, fits_path, ms_path, poly_limits, division_limits, pixel_size = None, image_size = None, n_iter_gc = 100, plots = False, gpu_id = 0):
 		self.fits_path = fits_path  # Ruta de archivo FITS
 		self.ms_path = ms_path # Ruta de archivo MS
 		self.poly_limits = poly_limits # [Lim. Inferior, Lim. Superior] -> Lista (Ej: [5, 20])
@@ -25,6 +26,7 @@ class OptimizacionParametrosGrillados:
 		self.image_size = image_size # Cantidad de pixeles para la imagen
 		self.n_iter_gc = n_iter_gc # Número de iteraciones de Grad. Conjugado
 		self.plots = plots # Flag booleano para plotear graficos por pantalla
+		self.gpu_id = gpu_id # En caso de usar un cluster/servidor, se elige cual de todas las GPU se va a usar para procesar.
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -65,7 +67,6 @@ class OptimizacionParametrosGrillados:
 		self.grid_u = grid_u
 
 		self.grid_v = grid_v
-	
 
 
 	@staticmethod
@@ -167,22 +168,30 @@ class OptimizacionParametrosGrillados:
 		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = (preprocesamiento_datos_a_grillar.
 																		  PreprocesamientoDatosAGrillar(self.fits_path,
 																										self.ms_path,																										
-																										image_size = self.image_size).
+																										image_size = self.image_size,
+																										pixel_size=self.pixel_size).
 																		  process_ms_file())
 		return gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v
 
 	def optimize_parameters(self, trial):
 		
+
 		start_time = time.time()
 		
 		# Cargamos los archivos de entrada
-		header, fits_dimensions, fits_data, du, pixel_size = (preprocesamiento_datos_a_grillar.
-																	PreprocesamientoDatosAGrillar(self.fits_path,
-																								  self.ms_path,																								  
-																								  image_size = self.image_size).
-																	fits_header_info())
+		header, _, fits_data, du, pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(self.fits_path, 
+																								   self.ms_path, 
+																								   image_size = self.image_size, 
+																								   pixel_size = self.pixel_size).fits_header_info()
 
-
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in header:
+			object_name = header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+		
 		################# Parametros iniciales #############
 		M = 1  # Multiplicador de Pixeles
 		N1 = self.image_size  # Numero de pixeles
@@ -323,11 +332,15 @@ class OptimizacionParametrosGrillados:
 			_, _, data, _, _ = interferometric_data.fits_header_info()
 
 			if self.plots == True:
-				title="Image model + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gc_image_model))
+				title=f"Imagen FITS de {object_name}"; fig=plt.figure(title); plt.title(title); im=plt.imshow(data)
+				plt.colorbar(im)
+
+				title=f"Imagen reconstruida de {object_name} + CG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gc_image_model))
 				plt.colorbar(im)
 
 				plt.show()
 
+			
 			#psnr_result = self.psnr(data, np.real(gc_image_model))
 
 			mse = self.comp_imagenes_model(data, np.real(gc_image_model))
@@ -355,6 +368,8 @@ class OptimizacionParametrosGrillados:
 		"""
 		
 	def initialize_optimization(self, num_trials):
+
+		cp.cuda.runtime.setDevice(self.gpu_id)
 
 		start_time = time.time()
 
@@ -406,6 +421,7 @@ class OptimizacionParametrosGrillados:
 			xaxis_title="Intento",
 			yaxis_title="MSE",
 		)
+
 
 		if self.plots == True:
 

@@ -11,13 +11,13 @@ import astropy.units as unit
 import dask.array as da
 from dask import delayed, compute
 from dask.distributed import Client
-from numba import jit, prange
+from numba import jit, prange, complex128, float64, int32
 from dask.distributed import Client, LocalCluster
 from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 
 
 class ProcesamientoDatosGrillados:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, n_iter_gc = 15, verbose = True, plots = False):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, n_iter_gc = 10, verbose = True, plots = False, conv_gridding = False, gpu_id = 0):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
@@ -27,6 +27,8 @@ class ProcesamientoDatosGrillados:
 		self.n_iter_gc = n_iter_gc
 		self.verbose = verbose
 		self.plots = plots
+		self.conv_gridding = conv_gridding
+		self.gpu_id = gpu_id
 
 		if self.pixel_size is None:
 			pixel_size = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
@@ -53,8 +55,72 @@ class ProcesamientoDatosGrillados:
 
 	def data_processing(self):
 		gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v = self.grid_data()
-		image_model, visibilities_model, weights_model, u_target, v_target = self.gridded_data_processing(gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v)
-		return image_model, visibilities_model, weights_model, u_target, v_target
+		image_model, visibilities_model, weights_model, u_target, v_target, reconstructed_image, vis_reconstructed = self.gridded_data_processing(gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v)
+		return image_model, visibilities_model, weights_model, u_target, v_target, reconstructed_image, vis_reconstructed
+
+	@staticmethod
+	def norm(weights, x):
+		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
+
+	def convolutional_gridding(self):
+
+		start_time = time.time()
+
+		visibilidades_grilladas, pesos_grillados, _, _, _ = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path, ms_path=self.ms_path, pixel_size=self.pixel_size).process_ms_file()
+
+		gridded_visibilities_2d = visibilidades_grilladas[0]  # (1,251,251)->(251,251)
+
+		if self.plots == True:
+			title = "Visibility model"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(gridded_visibilities_2d) + 0.00001))
+			plt.colorbar(im)
+
+			plt.show()
+
+		gridded_weights_2d = pesos_grillados[0]  # (1,251,251)->(251,251)
+
+		gc_image_1 = conjugate_gradient.ConjugateGradient(gridded_visibilities_2d, gridded_weights_2d/self.norm(gridded_weights_2d.flatten(), gridded_visibilities_2d.flatten()), self.n_iter_gc)
+
+		gc_image_data = gc_image_1.CG()
+
+		visibility_model = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(gc_image_data)))
+
+		gc_image_model = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model)))
+
+		reconstructed_image = np.rot90(gc_image_model, 2)
+
+		fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																						 ms_path=self.ms_path)
+
+		header, _, _, _, _ = fits_header.fits_header_info()
+
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in header:
+			object_name = header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		fits.writeto(f"convolutional_gridding_{object_name}.fits", np.real(reconstructed_image), header, overwrite=True)
+
+		if self.plots == True:
+			title="Gridding de Convolucion + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gc_image_model))
+			plt.colorbar(im)
+
+			title="Visibility model + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibility_model))
+			plt.colorbar(im)
+
+			plt.show()
+
+		# Finalizar el contador de tiempo
+		end_time = time.time()
+
+		# Calcular el tiempo de ejecución
+		execution_time = end_time - start_time
+
+		print(f"Tiempo de ejecución (Gridding de Conv.): {execution_time:.2f} segundos")
+		
+		return reconstructed_image, visibility_model
 
 
 	def grid_data(self):
@@ -76,8 +142,11 @@ class ProcesamientoDatosGrillados:
 	@staticmethod
 	def norm(weights,x):
 		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
+	
 
 	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
+
+		cp.cuda.runtime.setDevice(self.gpu_id)
 
 		start_time = time.time()
 
@@ -86,7 +155,7 @@ class ProcesamientoDatosGrillados:
 																	PreprocesamientoDatosAGrillar(self.fits_path,
 																								self.ms_path,																									
 																								image_size = self.image_size,
-																								pixel_size = self.pixel_size,
+																								pixel_size=self.pixel_size,
 																								plots = self.plots
 																								).
 																	fits_header_info())
@@ -279,7 +348,7 @@ class ProcesamientoDatosGrillados:
 			print("El atributo OBJECT no se encuentra en el header.")
 
 		if self.plots == True:
-			title = f"Image {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
+			title = f"Dirty Image de {object_name} (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
 			plt.colorbar(im)
 
 			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
@@ -298,6 +367,14 @@ class ProcesamientoDatosGrillados:
 		visibility_model_cg = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(gc_image_data)))
 
 		reconstructed_image = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model_cg)))
+
+		if self.plots == True:
+
+			title=f"Extrapolacion de {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(reconstructed_image))
+			plt.colorbar(im)
+
+			title=f"Visibility model {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibility_model_cg))
+			plt.colorbar(im)
 
 		# Finalizar el contador de tiempo
 		end_time = time.time()
@@ -318,13 +395,7 @@ class ProcesamientoDatosGrillados:
 														object_name, 
 														"txt")
 			
-			if self.plots == True:
-			
-				title=f"Extrapolacion {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(reconstructed_image))
-				plt.colorbar(im)
 
-				title=f"Visibility model {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibility_model_cg))
-				plt.colorbar(im)
 
 			# Guardar el tiempo de ejecución en un archivo de texto
 			with open(TITLE_TIME_RESULT , "w") as file:
@@ -347,6 +418,23 @@ class ProcesamientoDatosGrillados:
 												 object_name, 
 												 "npz")
 			
+			# Generar nombres de archivos
+			TITLE_VISIBILITIES_RESULT_PNG = self.generate_filename(TITLE_1, 
+													  num_polynomial, 
+													  division,
+													  pixel_size, 
+													  pixel_num, 
+													  object_name, 
+													  "png")
+			
+			TITLE_WEIGHTS_RESULT_PNG = self.generate_filename(TITLE_1_WEIGHTS, 
+												 num_polynomial, 
+												 division,
+												 pixel_size, 
+												 pixel_num, 
+												 object_name, 
+												 "png")
+			
 			TITLE_DIRTY_IMAGE_FITS = self.generate_filename(TITLE_1_DIRTY_IMAGE, 
 												   num_polynomial, 
 												   division,
@@ -362,12 +450,21 @@ class ProcesamientoDatosGrillados:
 													pixel_num, 
 													object_name, 
 													"fits")
+			
+			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+			plt.colorbar(im)
+			plt.savefig(f"/disk2/stephan/output_oficiales/{TITLE_VISIBILITIES_RESULT_PNG}")
+
+			title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+			plt.colorbar(im)
+			plt.savefig(f"/disk2/stephan/output_oficiales/{TITLE_WEIGHTS_RESULT_PNG}")
+
 
 			# Guardar archivos
-			np.savez(TITLE_VISIBILITIES_RESULT, visibilities_model)
-			np.savez(TITLE_WEIGHTS_RESULT, weights_model)
-			fits.writeto(TITLE_DIRTY_IMAGE_FITS, image_model, fits_header, overwrite=True)
-			fits.writeto(TITLE_RECONSTRUCTED_IMAGE_FITS, np.real(reconstructed_image), fits_header, overwrite=True)
+			np.savez(f"/disk2/stephan/output_oficiales/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
+			np.savez(f"/disk2/stephan/output_oficiales/{TITLE_WEIGHTS_RESULT}", weights_model)
+			fits.writeto(f"/disk2/stephan/output_oficiales/{TITLE_DIRTY_IMAGE_FITS}", image_model, fits_header, overwrite=True)
+			fits.writeto(f"/disk2/stephan/output_oficiales/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image), fits_header, overwrite=True)
 
 		return image_model, visibilities_model, weights_model, u_target, v_target, np.real(reconstructed_image), np.absolute(visibility_model_cg)
 
@@ -427,13 +524,10 @@ class ProcesamientoDatosGrillados:
 		P = np.zeros((s, s, len(z)), dtype=np.complex128)
 		P_target = np.zeros((s, s, len(z_target)), dtype=np.complex128)
 
-		print(f"z shape: {z.shape}, z_target shape: {z_target.shape}, w shape: {w.shape}, s: {s}")
-
-
 		for j in prange(s):
 			for k in range(s):
-				P[k, j, :] = (z ** k) * np.conjugate(z) ** j
-				P_target[k, j, :] = (z_target ** k) * np.conjugate(z_target) ** j
+				P[k, j, :] = (z ** (k)) * (np.conjugate(z) ** j)
+				P_target[k, j, :] = (z_target ** (k)) * (np.conjugate(z_target) ** j)
 
 				# Normalización
 				no = np.sqrt(np.sum(w * np.abs(P[k, j, :]) ** 2))
@@ -442,55 +536,6 @@ class ProcesamientoDatosGrillados:
 					P_target[k, j, :] /= no
 
 		return P, P_target
-	
-
-	
-	"""
-		@staticmethod
-	def dot2x2_gpu_optimized(weights, matrix, pol, chunk_data):
-		N1, N2, n = matrix.shape
-		sub_size = max(1, (N1 // chunk_data) + 1)
-
-		# Obtener la memoria total y usada en la GPU
-		total_mem = cp.cuda.Device(0).mem_info[1]  # Memoria total de la GPU 0 en bytes
-		used_mem = total_mem - cp.cuda.Device(0).mem_info[0]  # Memoria ya utilizada
-		available_mem = total_mem - used_mem  # Memoria real disponible
-		mem_usage_factor = 0.9  # Usar hasta el 90% de la memoria disponible
-
-		# Ajustar chunk_data usando memoria real disponible
-		chunk_data = max(1, min(chunk_data, int(mem_usage_factor * available_mem)))
-
-		# Inicializar matriz de salida en menor precisión para reducir uso de memoria
-		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)  # Usar complex128
-
-		# Procesamiento por fragmentos para evitar OOM
-		for chunk1 in range(sub_size):
-			for chunk2 in range(sub_size):
-				if chunk1 + chunk2 < sub_size:
-					N3 = min(chunk_data, N1 - chunk1 * chunk_data)
-					N4 = min(chunk_data, N2 - chunk2 * chunk_data)
-
-					if N3 <= 0 or N4 <= 0:
-						continue
-
-					# Extraer submatrices de forma más eficiente
-					sub_matrix = matrix[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-										chunk2 * chunk_data:(chunk2 + 1) * chunk_data, :]
-
-					# Usar cp.einsum para multiplicación y suma eficiente
-					subsum = cp.einsum('ijk,k->ij', sub_matrix * weights, cp.conjugate(pol))
-					final_dot[chunk1 * chunk_data:(chunk1 + 1) * chunk_data,
-							chunk2 * chunk_data:(chunk2 + 1) * chunk_data, 0] += subsum
-
-					# Liberar memoria intermedia
-					del sub_matrix, subsum
-					cp.get_default_memory_pool().free_all_blocks()
-
-		# Liberar memoria global al final
-		cp.get_default_memory_pool().free_all_blocks()
-
-		return final_dot
-	"""
 	
 	@staticmethod
 	@jit(parallel=True)
@@ -640,7 +685,7 @@ class ProcesamientoDatosGrillados:
 
 					# Ortogonalización Gram-Schmidt
 					if repeat == 0:
-						dot_data = self.dot2x2_gpu_optimized(w, P * V, D, chunk_data)
+						dot_data = self.dot2x2_gpu(w, P * V, D, chunk_data)
 						P -= dot_data * D
 						P_target -= dot_data * D_target
 
@@ -661,43 +706,46 @@ class ProcesamientoDatosGrillados:
 				residual -= M * P[k - j, j, :]
 				err += cp.abs(P_target[k - j, j, :]) ** 2
 
-		# Liberar memoria
-		del M, V, D, D_target, w
-		cp.get_default_memory_pool().free_all_blocks()
+		
 
 		# Aplicar el criterio de selección sigma2
 		final_data[err > sigma2] = 0
 
+		# Liberar memoria
+		del M, V, D, D_target, w
+		cp.get_default_memory_pool().free_all_blocks()
+
 		# Convertir las salidas de nuevo a NumPy para evitar errores fuera de esta función
 		return cp.asnumpy(final_data), cp.asnumpy(residual), cp.asnumpy(err), cp.asnumpy(P_target), cp.asnumpy(P)
-
-	
 	
 	@staticmethod
-	def dot2x2_gpu_optimized(weights, matrix, pol, chunk_data):
-		"""
-		Versión optimizada de dot2x2_gpu para reducir el uso de memoria en GPU.
-		"""
-		N1, N2, n = matrix.shape
-		final_dot = cp.zeros((N1, N2, 1), dtype=cp.complex128)
-
-		for chunk1 in range(N1 // chunk_data + 1):
-			for chunk2 in range(N2 // chunk_data + 1):
-				start1 = chunk1 * chunk_data
-				end1 = min((chunk1 + 1) * chunk_data, N1)
-				start2 = chunk2 * chunk_data
-				end2 = min((chunk2 + 1) * chunk_data, N2)
-
-				sub_matrix = matrix[start1:end1, start2:end2, :]
-				subsum = cp.einsum('ijk,k->ij', sub_matrix * weights, cp.conjugate(pol))
-				final_dot[start1:end1, start2:end2, 0] += subsum
-
-				# Liberar memoria intermedia
-				del sub_matrix, subsum
-				cp.get_default_memory_pool().free_all_blocks()
+	def norm(weights,x):
+		return(np.sqrt(np.sum(weights*np.absolute(x)**2)))
+	
+	@staticmethod
+	def dot(weights,x,y):
+		return(np.sum((x*weights*np.conjugate(y))))
+	
+	@staticmethod
+	def dot2x2(weights,matrix,pol,chunk_data):
+		weights = cp.array(weights)
+		pol = cp.array(pol)
+		N1,N2,n = matrix.shape
+		sub_size = int(N1/chunk_data) + 1
+		final_dot = np.zeros(shape=(N1,N2,1),dtype=np.complex128)
+		for chunk1 in range(0,sub_size):
+			for chunk2 in range(0,sub_size):
+				if chunk1 + chunk2 < sub_size:
+					sub_m = cp.array(matrix[chunk1*chunk_data:(chunk1+1)*chunk_data, chunk2*chunk_data:(chunk2+1)*chunk_data,:])
+					N3,N4,n2 = sub_m.shape
+					w = cp.ones(shape=(N3,N4,n2),dtype=float)*weights
+					subsum = sub_m*w*cp.conjugate(pol)
+					subsum = cp.sum(subsum,axis=2)
+					subsum = cp.reshape(subsum,(N3,N4,1))
+					final_dot[chunk1*chunk_data:(chunk1+1)*chunk_data, chunk2*chunk_data:(chunk2+1)*chunk_data,:] = cp.asnumpy(subsum)
 
 		return final_dot
-
+	
 	def recurrence2d(self, z_target, z, weights, data, size, s, division_sigma, chunk_data):
 		z = np.array(z)
 		z_target = np.array(z_target)

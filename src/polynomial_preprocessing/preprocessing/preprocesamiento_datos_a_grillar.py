@@ -134,6 +134,8 @@ class PreprocesamientoDatosAGrillar:
 			ckernel_object=ckernel
 		)
 
+		
+
 		dirty_images_robust = dirty_mapper.transform()
 		dirty_image, dirty_beam = dask.compute(
 			*[dirty_images_robust[0].data[0], dirty_images_robust[1].data[0]]

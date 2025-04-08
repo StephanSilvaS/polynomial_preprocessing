@@ -1,0 +1,29 @@
+@startuml
+class ProcesamientoDatosContinuos {
+    data_processing()
+    generate_filename()
+    dot2x2_gpu_optimized()
+    norm2x2_gpu()
+    initialize_polynomials_cpu()
+    norm2x2()
+    normalize_initial_polynomials_cpu()
+    gram_schmidt_and_estimation_gpu()
+    recurrence2d()
+    norm()
+    dot()
+    norm2x2_hugo()
+        fits_path
+    ms_path
+    num_polynomial
+    division_sigma
+    pixel_size
+    image_size
+    n_iter_gc
+    verbose
+    plots
+    gpu_id
+    pixel_size
+    image_size
+    __init__()
+}
+@enduml
