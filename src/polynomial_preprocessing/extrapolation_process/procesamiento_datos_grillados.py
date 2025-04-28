@@ -14,6 +14,7 @@ from dask.distributed import Client
 from numba import jit, prange, complex128, float64, int32
 from dask.distributed import Client, LocalCluster
 from polynomial_preprocessing.image_reconstruction import conjugate_gradient
+#from polynomial_preprocessing.extrapolation_process import gram_schmidt_extrapolation
 
 
 class ProcesamientoDatosGrillados:
@@ -61,6 +62,42 @@ class ProcesamientoDatosGrillados:
 	@staticmethod
 	def norm(weights, x):
 		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
+
+	def umbralizar_fits(self, umbral):
+		"""
+		Carga un archivo FITS, umbraliza sus valores (valores menores a `umbral` se hacen cero) y devuelve el arreglo modificado.
+
+		Parámetros:
+		path_fits : str
+			Ruta al archivo FITS.
+		umbral : float
+			Valor mínimo de magnitud para conservar. Todo valor con |valor| < umbral se reemplaza por 0.
+		extension : int
+			Número de la extensión del HDU donde están los datos (por defecto: 0).
+
+		Retorna:
+		datos_umbralizados : ndarray
+			Arreglo con los valores menores al umbral convertidos en cero.
+		"""
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		fits_header, _, fits_data, _, _ = interferometric_data.fits_header_info()
+
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		# Aplica el umbral
+		mascara = np.abs(fits_data) < umbral
+		fits_data[mascara] = 0
+
+		fits.writeto(f"/disk2/stephan/fits_umbralizados/{object_name}_modified.fits", fits_data, fits_header, overwrite=True)
+
+		return fits_data
 
 	def convolutional_gridding(self):
 
@@ -144,6 +181,53 @@ class ProcesamientoDatosGrillados:
 		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
 	
 
+	def graficar_visibilidades_sinteticos(self):
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		_, _, fits_data, _, _ = interferometric_data.fits_header_info()
+		TITLE_VISIBILITIES_FITS = f"{"sz114"}_fits_file_visibilities"
+
+		visibility_model_fits = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(fits_data)))
+
+		title = "Visibility fits original"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.000001))
+		plt.colorbar(im)
+		plt.savefig(f"/disk2/stephan/optim_sz114_con_param_b_v3/{TITLE_VISIBILITIES_FITS}.png")
+
+	def graficar_imagen_gc_original(self):
+		gridded_visibilities, gridded_weights, _, _, _ = (preprocesamiento_datos_a_grillar.
+																		  PreprocesamientoDatosAGrillar(self.fits_path,
+																										self.ms_path,																										
+																										image_size = self.image_size,
+																										pixel_size = self.pixel_size,
+																										plots = self.plots
+																										).
+																		  process_ms_file())
+		
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		fits_header, _, _, _, _ = interferometric_data.fits_header_info()
+
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+			
+		gc_gridded_image_data = conjugate_gradient.ConjugateGradient(gridded_visibilities[0], gridded_weights[0]/self.norm(gridded_weights[0].flatten(), gridded_visibilities[0].flatten()), self.n_iter_gc).CG()
+
+		gridded_visibility_model_cg = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(gc_gridded_image_data)))
+
+		gridded_reconstructed_image = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(gridded_visibility_model_cg)))
+
+		title = "Visibility fits original + CG"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(gridded_visibility_model_cg) + 0.000001))
+		plt.colorbar(im)
+		plt.savefig(f"/disk2/stephan/optim_sz114_con_param_b_v3/{"vis_gridded_image_CG_{object_name}"}.png")
+
+		#TERMINAR DE ARREGLAR FUNCION
+		fits.writeto(f"/disk2/stephan/output_oficiales/{f"imagen_orig_griddeada_con_CG"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
+
 	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
 
 		cp.cuda.runtime.setDevice(self.gpu_id)
@@ -183,8 +267,8 @@ class ProcesamientoDatosGrillados:
 		# u_ind, v_ind = np.nonzero(gridded_visibilities[0])
 		u_ind_w, v_ind_w = np.nonzero(gridded_weights[0]) # Se usan coordenadas no nulas de los pesos grillados.
 
-		gridded_visibilities_2d = gridded_visibilities[0].flatten()
-		gridded_weights_2d = gridded_weights[0].flatten()  
+		gridded_visibilities_2d = gridded_visibilities[0].flatten() 
+		gridded_weights_2d = gridded_weights[0].flatten()
 
 		# Filtramos por los valores no nulos
 
@@ -213,7 +297,7 @@ class ProcesamientoDatosGrillados:
 
 		du = 1 / (pixel_num * pixel_size)
 
-		umax = pixel_num * du / 2
+		umax = pixel_num * du / 2 # EL DIVIDIDO EN 2 ESTÁ HARDCODEADO
 
 		u_sparse = np.array(u_data) / umax
 		v_sparse = np.array(v_data) / umax
@@ -231,11 +315,6 @@ class ProcesamientoDatosGrillados:
 		z_target = u_target + 1j * v_target
 		z_sparse = u_sparse + 1j * v_sparse
 
-		print("u_sparse: ", u_sparse.shape)
-		print("v_sparse: ", v_sparse.shape)
-
-		print("z_sparse.shape: ", z_sparse.shape)
-
 		b = 1
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
@@ -249,7 +328,7 @@ class ProcesamientoDatosGrillados:
 			plt.show()
 			
 		
-		max_memory = cp.cuda.Device(0).mem_info[1]
+		max_memory = cp.cuda.Device(self.gpu_id).mem_info[1]
 		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -293,12 +372,9 @@ class ProcesamientoDatosGrillados:
 														  np.size(z_target.flatten()),
 														  num_polynomial,
 														  division,
-														  chunk_data)
+														  chunk_data,
+														  b)
 														 )
-
-		print("visibilities_mini.shape: ", visibilities_mini.shape)
-
-		print("residual.shape: ", residual.shape)
 
 		visibilities_mini = np.reshape(visibilities_mini, (pixel_num, pixel_num))
 
@@ -335,10 +411,6 @@ class ProcesamientoDatosGrillados:
 						 (visibilities_model * weights_model / np.sum(weights_model.flatten())))) * pixel_num ** 2)
 		image_model = np.array(image_model.real)
 
-
-
-		print("residual.shape: ", residual.shape)
-
 		# Buscar el atributo OBJECT en el header
 		if 'OBJECT' in fits_header:
 			object_name = fits_header['OBJECT']
@@ -346,6 +418,7 @@ class ProcesamientoDatosGrillados:
 		else:
 			object_name = "no_object_name"
 			print("El atributo OBJECT no se encuentra en el header.")
+
 
 		if self.plots == True:
 			title = f"Dirty Image de {object_name} (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(image_model)
@@ -361,6 +434,9 @@ class ProcesamientoDatosGrillados:
 			#plt.colorbar(im)
 
 			plt.show()
+
+		print("visibilities_model: ", visibilities_model.shape)
+		print("weights_model: ", weights_model.shape)
 
 		gc_image_data = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/self.norm(weights_model.flatten(), visibilities_model.flatten()), self.n_iter_gc).CG()
 
@@ -569,7 +645,9 @@ class ProcesamientoDatosGrillados:
 
 		return final_norm
 
-	def normalize_initial_polynomials_cpu(self, w, P, P_target, V, s, chunk_data):
+	def normalize_initial_polynomials_cpu(self, z_target, z, w, P, P_target, V, s, chunk_data, b):
+		P = P*np.exp(-z*np.conjugate(z)/(2*(b**2)))
+		P_target = P_target*np.exp(-z_target*np.conjugate(z_target)/(2*(b**2)))
 		no_data = self.norm2x2(w, P, chunk_data)
 
 		# Dividimos por no_data solo en posiciones donde no_data no es cero
@@ -693,6 +771,21 @@ class ProcesamientoDatosGrillados:
 						del dot_data
 						cp.get_default_memory_pool().free_all_blocks()
 
+					if repeat > 0:
+						for y in range(0, k + 1):
+							for x in range(0, y + 1):
+								if (y - x != k - j) or (j != x):
+									dot_data = self.dot(w, P[k - j, j, :], P[y - x, x, :])
+									P[k - j, j, :] -= dot_data * P[y - x, x, :]
+									P_target[k - j, j, :] -= dot_data * P_target[y - x, x, :]
+								else:
+									break
+							# Normalización
+							no = cp.sqrt(cp.sum(w * cp.abs(P[k - j, j, :]) ** 2))
+							if no != 0:
+								P[k - j, j, :] /= no
+								P_target[k - j, j, :] /= no
+
 				# Limpieza de valores NaN e Inf
 				P = cp.nan_to_num(P, nan=0.0, posinf=0.0, neginf=0.0)
 				P_target = cp.nan_to_num(P_target, nan=0.0, posinf=0.0, neginf=0.0)
@@ -746,7 +839,7 @@ class ProcesamientoDatosGrillados:
 
 		return final_dot
 	
-	def recurrence2d(self, z_target, z, weights, data, size, s, division_sigma, chunk_data):
+	def recurrence2d(self, z_target, z, weights, data, size, s, division_sigma, chunk_data, b):
 		z = np.array(z)
 		z_target = np.array(z_target)
 		w = np.array(weights)
@@ -770,11 +863,16 @@ class ProcesamientoDatosGrillados:
 		print("Polinomios inicializados.")
 
 		# Normalización inicial de P y P_target
-		P, P_target = self.normalize_initial_polynomials_cpu(w, P, P_target, V, s, chunk_data)
+		P, P_target = self.normalize_initial_polynomials_cpu(z_target, z, w, P, P_target, V, s, chunk_data, b)
 
 		print("Polinomios normalizados.")
 
 		# Procedimiento Gram-Schmidt en los polinomios
+
+		#final_data, residual, err, P_target, P = gram_schmidt_extrapolation.GramSchmidtExtrapolation(w, P, P_target, V, D, D_target,
+		#																		 residual, final_data, err, s, sigma2, chunk_data=chunk_data,
+		#																		 max_rep=2).gram_schmidt_and_estimation_gpu()
+		
 		final_data, residual, err, P_target, P = self.gram_schmidt_and_estimation_gpu(w, P, P_target, V, D, D_target,
 																					  residual, final_data, err, s,
 																					  sigma2,

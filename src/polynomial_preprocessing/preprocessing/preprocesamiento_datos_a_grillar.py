@@ -9,6 +9,7 @@ import numpy as np
 from pyralysis.convolution import PSWF1
 import astropy.units as unit
 from astropy.coordinates import Angle
+import random
 
 
 class PreprocesamientoDatosAGrillar:
@@ -165,5 +166,15 @@ class PreprocesamientoDatosAGrillar:
 		#print("u: ", u)
 		#print("v: ", v)
 
+		np.random.seed(7)
+
+		epsilon = 1e-12
+		# Reemplazar ceros en gridded_weights por epsilon
+		safe_weights = np.where(gridded_weights == 0, epsilon, gridded_weights)
+		sigma = np.sqrt(1 / safe_weights)
+
+		err = np.random.normal(0, sigma)
+		err = np.where(gridded_weights == 0, 0, err)
+		gridded_visibilities += err
 
 		return gridded_visibilities, gridded_weights, dx, u, v

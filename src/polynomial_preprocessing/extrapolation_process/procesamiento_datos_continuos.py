@@ -9,9 +9,10 @@ from astropy.coordinates import Angle
 from numba import jit, complex128, float64, int32, prange
 import astropy.units as unit
 from polynomial_preprocessing.image_reconstruction import conjugate_gradient, conjugate_gradient_2
+#from polynomial_preprocessing.extrapolation_process import gram_schmidt_extrapolation
 
 class ProcesamientoDatosContinuos:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, n_iter_gc = 15, verbose = True, plots = False, gpu_id = 0):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size = None, image_size = None, n_iter_gc = 15, verbose = True, plots = False, gpu_id = 1):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
@@ -59,6 +60,31 @@ class ProcesamientoDatosContinuos:
 
 		uvw_coords, visibilities, weights, _ = interferometric_data.process_ms_file()
 
+		'''
+		np.random.seed(7)
+
+		epsilon = 1e-12
+		# Reemplazar ceros en gridded_weights por epsilon
+		safe_weights = np.where(weights == 0, epsilon, weights)
+		# safe_weights debe tener shape (15125, 1)
+		sigma = np.sqrt(1 / safe_weights)  # → shape (15125, 1)
+
+		# Generar ruido para cada componente real e imaginaria
+		err_real = np.random.normal(0, sigma)  # shape (15125, 1)
+		err_imag = np.random.normal(0, sigma)  # shape (15125, 1)
+
+		# Stack para formar parte real e imaginaria: (15125, 1, 2)
+		err = np.stack((err_real, err_imag), axis=-1)
+
+		# Debug
+		print("visibilities.shape:", visibilities.shape)
+		print("err.shape:", err.shape)
+
+		# Suma segura
+		visibilities += err
+		'''
+
+
 		M = 1  # Multiplicador de Pixeles
 		pixel_num = self.image_size  # Numero de pixeles
 		# pixel_num = 251
@@ -98,10 +124,22 @@ class ProcesamientoDatosContinuos:
 		# Normalizacion de los datos
 
 		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
+		print(gv_sparse)
+		
 		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
+		print(gw_sparse)
 
 		u_data = u_coords
+		print(u_data)
 		v_data = v_coords
+		print(v_data)
+
+		print("u_data : ", u_data.shape)
+
+		print("v_data: ", v_data.shape)
+
+		print(np.size(gv_sparse))
+
 
 		du = 1 / (pixel_num * pixel_size)
 
@@ -130,7 +168,7 @@ class ProcesamientoDatosContinuos:
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
-		max_memory = cp.cuda.Device(0).mem_info[1]
+		max_memory = cp.cuda.Device(self.gpu_id).mem_info[1] 
 		max_data = float(int(max_memory / (num_polynomial * num_polynomial)))
 
 		divide_data = int(np.size(gv_sparse[np.absolute(gv_sparse) != 0].flatten()) / max_data) + 1
@@ -600,10 +638,13 @@ class ProcesamientoDatosContinuos:
 
 		print("Polinomios normalizados.")
 
-		# Procedimiento Gram-Schmidt en los polinomios
 		final_data, residual, err, P_target, P = self.gram_schmidt_and_estimation_gpu(w, P, P_target, V, D, D_target,
-																				 residual, final_data, err, s, sigma2,
-																				 max_rep=2, chunk_data=chunk_data)
+																				 residual, final_data, err, s, sigma2, max_rep=2, chunk_data=chunk_data)
+
+		#final_data, residual, err, P_target, P = gram_schmidt_extrapolation.GramSchmidtExtrapolation(w, P, P_target, V, D, D_target,
+		#																		 residual, final_data, err, s, sigma2, chunk_data=chunk_data,
+		#																		 max_rep=2).gram_schmidt_and_estimation_gpu()
+
 		print("Hice G-S.")
 		del w
 		del D
