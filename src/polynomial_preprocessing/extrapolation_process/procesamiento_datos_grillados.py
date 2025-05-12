@@ -279,8 +279,8 @@ class ProcesamientoDatosGrillados:
 
 		# Normalizacion de los datos
 
-		gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
-		gw_sparse = (gw_sparse / np.sqrt(np.sum(gw_sparse ** 2)))
+		#gv_sparse = (gv_sparse / np.sqrt(np.sum(gv_sparse ** 2)))
+		gw_sparse = (gw_sparse / np.sum(gw_sparse))
 
 		u_data = grid_u[u_ind_w]
 		v_data = grid_v[v_ind_w]
