@@ -5,6 +5,8 @@ from astropy.coordinates import Angle
 import cupy as cp
 import numpy as np
 import multiprocessing as mp
+from astropy.wcs import WCS
+from matplotlib.colors import Normalize
 import time
 import matplotlib.pyplot as plt
 import astropy.units as unit
@@ -18,11 +20,12 @@ from polynomial_preprocessing.image_reconstruction import conjugate_gradient
 
 
 class ProcesamientoDatosGrillados:
-	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, pixel_size=None, image_size=None, n_iter_gc = 10, verbose = True, plots = False, conv_gridding = False, gpu_id = 0):
+	def __init__(self, fits_path, ms_path, num_polynomial, division_sigma, b = 1, pixel_size=None, image_size=None, n_iter_gc = 10, verbose = True, plots = False, conv_gridding = False, gpu_id = 0):
 		self.fits_path = fits_path
 		self.ms_path = ms_path
 		self.num_polynomial = num_polynomial
 		self.division_sigma = division_sigma
+		self.b = b
 		self.pixel_size = pixel_size
 		self.image_size = image_size
 		self.n_iter_gc = n_iter_gc
@@ -92,12 +95,48 @@ class ProcesamientoDatosGrillados:
 			print("El atributo OBJECT no se encuentra en el header.")
 
 		# Aplica el umbral
-		mascara = np.abs(fits_data) < umbral
+		mascara = fits_data < umbral
 		fits_data[mascara] = 0
 
 		fits.writeto(f"/disk2/stephan/fits_umbralizados/{object_name}_modified.fits", fits_data, fits_header, overwrite=True)
 
 		return fits_data
+
+	def reemplazar_nan_fits(self):
+		"""
+		Carga un archivo FITS, reemplaza valores NaN por 0, y guarda el archivo modificado.
+
+		Retorna:
+		datos_limpiados : ndarray
+			Arreglo con los valores NaN reemplazados por 0.
+		"""
+
+		# Cargar los datos desde el FITS
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(
+			fits_path=self.fits_path,
+			ms_path=self.ms_path
+		)
+
+		fits_header, _, fits_data, _, _ = interferometric_data.fits_header_info()
+
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		# Reemplazar NaNs por 0
+		fits_data = np.nan_to_num(fits_data, nan=0.0)
+
+		# Guardar nuevo archivo FITS
+		output_path = f"/disk2/stephan/fits_nan_removidos/{object_name}_nan0.fits"
+		fits.writeto(output_path, fits_data, fits_header, overwrite=True)
+		print(f"Archivo guardado en: {output_path}")
+
+		return fits_data
+
 
 	def convolutional_gridding(self):
 
@@ -123,7 +162,7 @@ class ProcesamientoDatosGrillados:
 
 		gc_image_model = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model)))
 
-		reconstructed_image = np.rot90(gc_image_model, 2)
+		#reconstructed_image = np.rot90(gc_image_model, 2)
 
 		fits_header = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																						 ms_path=self.ms_path)
@@ -138,7 +177,7 @@ class ProcesamientoDatosGrillados:
 			object_name = "no_object_name"
 			print("El atributo OBJECT no se encuentra en el header.")
 
-		fits.writeto(f"convolutional_gridding_{object_name}.fits", np.real(reconstructed_image), header, overwrite=True)
+		fits.writeto(f"/disk2/stephan/convolutional_gridding/convolutional_gridding_{object_name}.fits", np.real(gc_image_model), header, overwrite=True)
 
 		if self.plots == True:
 			title="Gridding de Convolucion + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gc_image_model))
@@ -157,7 +196,7 @@ class ProcesamientoDatosGrillados:
 
 		print(f"Tiempo de ejecución (Gridding de Conv.): {execution_time:.2f} segundos")
 		
-		return reconstructed_image, visibility_model
+		return gc_image_model, visibility_model
 
 
 	def grid_data(self):
@@ -181,17 +220,91 @@ class ProcesamientoDatosGrillados:
 		return(np.absolute(np.sqrt(np.sum(weights*np.absolute(x)**2))))
 	
 
-	def graficar_visibilidades_sinteticos(self):
+	def graficar_visibilidades_sinteticos_grid_extra(self):
 		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
 																							   ms_path=self.ms_path)
-		_, _, fits_data, _, _ = interferometric_data.fits_header_info()
-		TITLE_VISIBILITIES_FITS = f"{"sz114"}_fits_file_visibilities"
+		fits_header, _, fits_data, _, _ = interferometric_data.fits_header_info()
+
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		TITLE_VISIBILITIES_FITS = f"{object_name}_fits_file_visibilities"
+		TITLE_IMAGE_FITS = f"{object_name}_fits_file_image"
 
 		visibility_model_fits = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(fits_data)))
 
 		title = "Visibility fits original"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.000001))
 		plt.colorbar(im)
-		plt.savefig(f"/disk2/stephan/optim_sz114_con_param_b_v3/{TITLE_VISIBILITIES_FITS}.png")
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_VISIBILITIES_FITS}.png")
+
+		# Supongo que ya tienes `fits_data` cargado como arreglo 2D
+		title = f"Imagen FITS de {object_name}"
+
+		vis_rotadas = np.rot90(fits_data, 2)
+
+		fig, ax = plt.subplots(figsize=(8, 6))
+		im = ax.imshow(vis_rotadas, cmap="plasma", origin='lower', 
+					norm=Normalize(vmin=np.min(vis_rotadas), vmax=np.max(vis_rotadas)))
+		ax.set_title(title)
+		ax.set_xlabel("Pixel eje X")
+		ax.set_ylabel("Pixel eje Y")
+		plt.colorbar(im, ax=ax, label="Intensidad")
+		plt.grid(True, color='white', linestyle='--', linewidth=0.5)
+		plt.tight_layout()
+
+		# Guardar figura
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_IMAGE_FITS}.png", dpi=300, bbox_inches='tight')  # <- ESTA ES LA LÍNEA IMPORTANTE
+
+		plt.show()
+
+
+	def graficar_visibilidades_sinteticos_refer(self):
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		fits_header, _, fits_data, _, _ = interferometric_data.fits_header_info()
+
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		TITLE_VISIBILITIES_FITS = f"{object_name}_fits_file_visibilities"
+		TITLE_IMAGE_FITS = f"{object_name}_fits_file_image_referencia"
+
+		visibility_model_fits = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(fits_data)))
+
+		title = "Visibility fits original"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.000001))
+		plt.colorbar(im)
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_VISIBILITIES_FITS}.png")
+
+		# Supongo que ya tienes `fits_data` cargado como arreglo 2D
+		title = f"Imagen FITS de {object_name}"
+
+		#vis_rotadas = np.rot90(fits_data, 2)
+
+		fig, ax = plt.subplots(figsize=(8, 6))
+		im = ax.imshow(fits_data, cmap="plasma", origin='lower', 
+					norm=Normalize(vmin=np.min(fits_data), vmax=np.max(fits_data)))
+		ax.set_title(title)
+		ax.set_xlabel("Pixel eje X")
+		ax.set_ylabel("Pixel eje Y")
+		plt.colorbar(im, ax=ax, label="Intensidad")
+		plt.grid(True, color='white', linestyle='--', linewidth=0.5)
+		plt.tight_layout()
+
+		# Guardar figura
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_IMAGE_FITS}.png", dpi=300, bbox_inches='tight')  # <- ESTA ES LA LÍNEA IMPORTANTE
+
+		plt.show()
+
+		
+
 
 	def graficar_imagen_gc_original(self):
 		gridded_visibilities, gridded_weights, _, _, _ = (preprocesamiento_datos_a_grillar.
@@ -226,7 +339,7 @@ class ProcesamientoDatosGrillados:
 		plt.savefig(f"/disk2/stephan/optim_sz114_con_param_b_v3/{"vis_gridded_image_CG_{object_name}"}.png")
 
 		#TERMINAR DE ARREGLAR FUNCION
-		fits.writeto(f"/disk2/stephan/output_oficiales/{f"imagen_orig_griddeada_con_CG"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
+		fits.writeto(f"/disk2/stephan/output_oficiales/AS205/{f"imagen_orig_griddeada_con_CG"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
 
 	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
 
@@ -268,7 +381,11 @@ class ProcesamientoDatosGrillados:
 		u_ind_w, v_ind_w = np.nonzero(gridded_weights[0]) # Se usan coordenadas no nulas de los pesos grillados.
 
 		gridded_visibilities_2d = gridded_visibilities[0].flatten() 
+
+		gridded_visibilities_2d_cuadricula = np.reshape(gridded_visibilities_2d, (pixel_num, pixel_num))
 		gridded_weights_2d = gridded_weights[0].flatten()
+
+		gridded_weights_2d_cuadricula = np.reshape(gridded_weights_2d, (pixel_num, pixel_num))
 
 		# Filtramos por los valores no nulos
 
@@ -315,7 +432,7 @@ class ProcesamientoDatosGrillados:
 		z_target = u_target + 1j * v_target
 		z_sparse = u_sparse + 1j * v_sparse
 
-		b = 1
+		b = self.b
 
 		z_exp = np.exp(-z_target * np.conjugate(z_target) / (2 * b * b))
 
@@ -376,9 +493,30 @@ class ProcesamientoDatosGrillados:
 														  b)
 														 )
 
+		#vis_rotadas = np.rot90(visibilities_mini, 3)
+		#vis_flip = np.fliplr(vis_rotadas)
+
+		#vis_gridded = self.gridded_weights[0]
+
 		visibilities_mini = np.reshape(visibilities_mini, (pixel_num, pixel_num))
 
-		visibilities_model = np.array(visibilities_mini)
+		# CAMBIAR DE AQUI PARA ABAJO
+
+		vis_rotadas_extra = np.rot90(visibilities_mini, 1)
+		vis_flip = np.fliplr(vis_rotadas_extra)
+
+
+		# Crear una máscara booleana donde los pesos sean distintos de cero
+		mascara_pesos_no_cero = gridded_weights_2d_cuadricula != 0
+
+
+		# Reemplazar visibilidades originales en posiciones donde los pesos son distintos de cero
+		vis_flip[mascara_pesos_no_cero] = gridded_visibilities_2d_cuadricula[mascara_pesos_no_cero]
+
+
+
+		visibilities_model = np.array(vis_flip)
+
 
 		#residual_mini = np.reshape(residual, (pixel_num, pixel_num))
 
@@ -398,6 +536,9 @@ class ProcesamientoDatosGrillados:
 		weights_mini[np.isinf(weights_mini)] = 0.0
 
 		weights_mini = np.reshape(weights_mini, (pixel_num, pixel_num))
+
+		# Reemplazar pesos originales en posiciones correspondientes (si es requerido)
+		weights_mini[mascara_pesos_no_cero] = gridded_weights_2d_cuadricula[mascara_pesos_no_cero]
 
 		weights_model = np.array(weights_mini)
 
@@ -435,8 +576,6 @@ class ProcesamientoDatosGrillados:
 
 			plt.show()
 
-		print("visibilities_model: ", visibilities_model.shape)
-		print("weights_model: ", weights_model.shape)
 
 		gc_image_data = conjugate_gradient.ConjugateGradient(visibilities_model, weights_model/self.norm(weights_model.flatten(), visibilities_model.flatten()), self.n_iter_gc).CG()
 
@@ -449,7 +588,7 @@ class ProcesamientoDatosGrillados:
 			title=f"Extrapolacion de {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(reconstructed_image))
 			plt.colorbar(im)
 
-			title=f"Visibility model {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.absolute(visibility_model_cg))
+			title=f"Visibility model {object_name} + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.log(np.absolute(visibility_model_cg) + 0.00001))
 			plt.colorbar(im)
 
 		# Finalizar el contador de tiempo
@@ -529,18 +668,18 @@ class ProcesamientoDatosGrillados:
 			
 			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 			plt.colorbar(im)
-			plt.savefig(f"/disk2/stephan/output_oficiales/{TITLE_VISIBILITIES_RESULT_PNG}")
+			plt.savefig(f"/disk2/stephan/output_oficiales/AS205/{TITLE_VISIBILITIES_RESULT_PNG}")
 
 			title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 			plt.colorbar(im)
-			plt.savefig(f"/disk2/stephan/output_oficiales/{TITLE_WEIGHTS_RESULT_PNG}")
+			plt.savefig(f"/disk2/stephan/output_oficiales/AS205/{TITLE_WEIGHTS_RESULT_PNG}")
 
 
 			# Guardar archivos
-			np.savez(f"/disk2/stephan/output_oficiales/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
-			np.savez(f"/disk2/stephan/output_oficiales/{TITLE_WEIGHTS_RESULT}", weights_model)
-			fits.writeto(f"/disk2/stephan/output_oficiales/{TITLE_DIRTY_IMAGE_FITS}", image_model, fits_header, overwrite=True)
-			fits.writeto(f"/disk2/stephan/output_oficiales/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image), fits_header, overwrite=True)
+			np.savez(f"/disk2/stephan/output_oficiales/AS205/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
+			np.savez(f"/disk2/stephan/output_oficiales/AS205/{TITLE_WEIGHTS_RESULT}", weights_model)
+			fits.writeto(f"/disk2/stephan/output_oficiales/AS205/{TITLE_DIRTY_IMAGE_FITS}", image_model, fits_header, overwrite=True)
+			fits.writeto(f"/disk2/stephan/output_oficiales/AS205/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image), fits_header, overwrite=True)
 
 		return image_model, visibilities_model, weights_model, u_target, v_target, np.real(reconstructed_image), np.absolute(visibility_model_cg)
 

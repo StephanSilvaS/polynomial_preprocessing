@@ -270,6 +270,10 @@ class OptimizacionParametrosGrillados:
 
 		visibility_model_fits_first = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(fits_data)))
 
+		if self.plots == True:
+				plt.figure()
+				plt.plot(visibility_model_fits_first.flatten(), color='g')
+
 		# Buscar el atributo OBJECT en el header
 		if 'OBJECT' in header:
 			object_name = header['OBJECT']
@@ -301,22 +305,11 @@ class OptimizacionParametrosGrillados:
 
 		u_ind_w, v_ind_w = np.nonzero(self.gridded_weights[0]) # Se usan coordenadas no nulas de los pesos grillados.
 		
-		print("self.gridded_weights[0].size: ", self.gridded_weights[0].size)
-		print("self.gridded_visibilities[0]: ", self.gridded_visibilities[0])
-		print("self.gridded_visibilities[0].size: ", self.gridded_visibilities[0].size)
-		
 		gridded_visibilities_2d = self.gridded_visibilities[0].flatten()  # (1,251,251)->(251,251)
-		print ("gridded_visibilities_2d: ", gridded_visibilities_2d)
-		print ("gridded_visibilities_2d.size: ", gridded_visibilities_2d.size)
 
 		gridded_visibilities_2d_cuadricula = np.reshape(gridded_visibilities_2d, (N1, N1))
 
-		print("gridded_visibilities_2d_cuadricula: ", gridded_visibilities_2d_cuadricula)
-		print("gridded_visibilities_2d_cuadricula.size: ", gridded_visibilities_2d_cuadricula.size)
-
 		gridded_weights_2d = self.gridded_weights[0].flatten()  # (1,251,251)->(251,251)
-		print ("gridded_weights_2d: ", gridded_weights_2d)
-		print ("gridded_weights_2d.size: ", gridded_weights_2d.size)
 
 		gridded_weights_2d_cuadricula = np.reshape(gridded_weights_2d, (N1, N1))
 
@@ -341,6 +334,9 @@ class OptimizacionParametrosGrillados:
 		if self.plots == True:
 
 			title=f"{object_name} griddeado + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gridded_reconstructed_image))
+			plt.colorbar(im)
+
+			title=f"{object_name} cuadricula griddeado + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.log(np.absolute(gridded_weights_2d_cuadricula) + 0.00001))
 			plt.colorbar(im)
 
 			title = "Visibilidades fits sintetico"; fig_fits_file = plt.figure(title); plt.title(title); im_fits_file = plt.imshow(np.log(np.absolute(visibility_model_fits_first) + 0.00001))
@@ -447,9 +443,6 @@ class OptimizacionParametrosGrillados:
 															 )
 
 
-			print("visibilities_mini: ", visibilities_mini)
-			print("visibilities_mini.size: ", visibilities_mini.size)
-
 			#vis_rotadas = np.rot90(visibilities_mini, 3)
 			#vis_flip = np.fliplr(vis_rotadas)
 
@@ -457,40 +450,21 @@ class OptimizacionParametrosGrillados:
 
 			visibilities_mini = np.reshape(visibilities_mini, (N1, N1))
 
-			print("visibilities_mini: ", visibilities_mini)
-			print("visibilities_mini.size: ", visibilities_mini.size)
-
 			# CAMBIAR DE AQUI PARA ABAJO
 
-			vis_rotadas_extra = np.rot90(visibilities_mini, 3)
+			vis_rotadas_extra = np.rot90(visibilities_mini, 1)
 			vis_flip = np.fliplr(vis_rotadas_extra)
 
-			print("vis_flip: ", vis_flip)
-			print("vis_flip.size: ", vis_flip.size)
 
 			# Crear una máscara booleana donde los pesos sean distintos de cero
 			mascara_pesos_no_cero = gridded_weights_2d_cuadricula != 0
 
-			print("mascara_pesos_no_cero: ", mascara_pesos_no_cero)
 
 			# Reemplazar visibilidades originales en posiciones donde los pesos son distintos de cero
 			vis_flip[mascara_pesos_no_cero] = gridded_visibilities_2d_cuadricula[mascara_pesos_no_cero]
 
-			print("vis_flip: ", vis_flip)
-			print("vis_flip.size: ", vis_flip.size)
-
-			print("visibilities_mini: ", visibilities_mini)
-
-			print("visibilities_mini.shape: ", visibilities_mini.shape)
 
 			visibilities_model = np.array(vis_flip)
-
-			print("visibilities_model: ", visibilities_model)
-
-			print("visibilities_model.shape: ", visibilities_model.shape)
-
-
-
 
 			if self.plots == True:
 				plt.figure()
@@ -505,10 +479,12 @@ class OptimizacionParametrosGrillados:
 			weights_mini[np.isnan(weights_mini)] = 0.0
 			weights_mini[np.isinf(weights_mini)] = 0.0
 
-			# Reemplazar pesos originales en posiciones correspondientes (si es requerido)
-			weights_mini[mascara_pesos_no_cero] = gridded_weights_2d[mascara_pesos_no_cero]
+
 
 			weights_mini = np.reshape(weights_mini, (N1, N1))
+
+			# Reemplazar pesos originales en posiciones correspondientes (si es requerido)
+			weights_mini[mascara_pesos_no_cero] = gridded_weights_2d_cuadricula[mascara_pesos_no_cero]
 
 			weights_model = np.array(weights_mini)
 
@@ -529,7 +505,7 @@ class OptimizacionParametrosGrillados:
 
 			gc_image_model = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(visibility_model)))
 
-			vis_rotadas = np.rot90(visibility_model, 3)
+			#vis_rotadas = np.rot90(visibility_model, 3)
 
 			# Procesamiento adicional para calcular métrica de evaluación (PSNR, MSE, etc.)
 
@@ -618,35 +594,35 @@ class OptimizacionParametrosGrillados:
 			
 
 			if self.verbose == True:
-				title = f"Visibility {object_name} model (dirty) (division sigma: " + str(division) + " num poly: " + str(S) + ")"; fig = plt.figure(title); plt.title(title); im_dirty = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+				title = f"Visibility {object_name} model (dirty) (division sigma: " + f"{division:.2f}" + " num poly: " + str(S) + ")"; fig = plt.figure(title); plt.title(title); im_dirty = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 				plt.colorbar(im_dirty)
-				plt.savefig(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_VISIBILITIES_RESULT_PNG}")
+				plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_VISIBILITIES_RESULT_PNG}")
 
-				title = "Visibilidades modelo reconstruido"; figure_vis_recons = plt.figure(title); plt.title(title); im_recons = plt.imshow(np.log(np.absolute(vis_rotadas) + 0.00001))
+				title = "Visibilidades modelo reconstruido"; figure_vis_recons = plt.figure(title); plt.title(title); im_recons = plt.imshow(np.log(np.absolute(visibility_model) + 0.00001))
 				plt.colorbar(im_recons)
-				plt.savefig(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_RECONSTRUCTED_VISIBILITIES_PNG}")
+				plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_RECONSTRUCTED_VISIBILITIES_PNG}")
 
-				title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+				title = f"Weights {object_name} model (division sigma: " + f"{division:.2f}" + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 				plt.colorbar(im)
 				plt.savefig(f"/disk2/stephan/output_oficiales/{TITLE_WEIGHTS_RESULT_PNG}")
 				plt.close('all')
 
 				# Guardar archivos
-				np.savez(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
-				fits.writeto(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_DIRTY_IMAGE_FITS}", image_model, header, overwrite=True)
-				fits.writeto(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image_cg), header, overwrite=True)
+				np.savez(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
+				fits.writeto(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_DIRTY_IMAGE_FITS}", image_model, header, overwrite=True)
+				fits.writeto(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image_cg), header, overwrite=True)
 
 			if self.plots == True:
-				title = f"Visibility {object_name} model (dirty) (division sigma: " + str(division) + " num poly: " + str(S) + ")"; fig = plt.figure(title); plt.title(title); im_dirty = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
+				title = f"Visibility {object_name} model (dirty) (division sigma: " + f"{division:.2f}" + " num poly: " + str(S) + ")"; fig = plt.figure(title); plt.title(title); im_dirty = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 				plt.colorbar(im_dirty)
 
-				title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
+				title = f"Weights {object_name} model (division sigma: " + f"{division:.2f}" + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 				plt.colorbar(im)
 				
 				title = "Visibility model original"; fig_vis_original = plt.figure(title); plt.title(title); im_vis_original = plt.imshow(np.log(np.absolute(self.gridded_visibilities[0]) + 0.00001))
 				plt.colorbar(im_vis_original)
 
-				title = "Visibilidades modelo reconstruido"; figure = plt.figure(title); plt.title(title); im_recons = plt.imshow(np.log(np.absolute(vis_rotadas) + 0.00001))
+				title = "Visibilidades modelo reconstruido"; figure = plt.figure(title); plt.title(title); im_recons = plt.imshow(np.log(np.absolute(visibility_model) + 0.00001))
 				plt.colorbar(im_recons)
 
 				title = "Visibilidades fits sintetico"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.00001))
@@ -657,7 +633,7 @@ class OptimizacionParametrosGrillados:
 				
 			#psnr_result = self.psnr(data, np.real(gc_image_model))
 
-			rmse = self.calcular_rmse_norm(visibility_model_fits, vis_rotadas)
+			rmse = self.calcular_rmse_norm(visibility_model_fits, visibility_model)
 
 			print("El RMSE de caso con extrapolacion es: ", rmse)
 
@@ -708,7 +684,7 @@ class OptimizacionParametrosGrillados:
 		def save_study_callback(study, trial):
 			try:
 				study.trials_dataframe().to_csv(
-					"/disk2/stephan/optim_con_sz114/optim_sz114_v7/study_trials_backup.csv",
+					"/disk2/stephan/optim_de_param_datasets/optim_hd142/study_trials_backup.csv",
 					index=False
 				)
 			except Exception as e:
@@ -751,17 +727,17 @@ class OptimizacionParametrosGrillados:
 
 			title = "Visibilidades fits sintetico"; fig_fits_file = plt.figure(title); plt.title(title); im_fits_file = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.00001))
 			plt.colorbar(im_fits_file)
-			plt.savefig(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_VISIBILITIES_FITS}.png")
+			plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_VISIBILITIES_FITS}.png")
 
 			title = "Visibility model original"; fig_vis_original = plt.figure(title); plt.title(title); im_vis_original = plt.imshow(np.log(np.absolute(self.gridded_visibilities[0]) + 0.00001))
 			plt.colorbar(im_vis_original)
-			plt.savefig(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{f"visibilidades_orig_{object_name}.png"}")
+			plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{f"visibilidades_orig_{object_name}.png"}")
 
-			title=f"Imagen reconstruida de {object_name} griddeado orig + CG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gridded_visibility_model_cg))
+			title=f"Imagen reconstruida de {object_name} griddeado orig + CG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.log(np.absolute(gridded_visibility_model_cg) + 0.00001)) 
 			plt.colorbar(im)
-			plt.savefig(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{f"vis_imagen_griddeada_orig_CG_{object_name}.png"}")
+			plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{f"vis_imagen_griddeada_orig_CG_{object_name}.png"}")
 
-			fits.writeto(f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{f"imagen_griddeada_original_CG_{object_name}.fits"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
+			fits.writeto(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{f"imagen_griddeada_original_CG_{object_name}.fits"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
 
 		if self.plots == True:
 			title = "Visibilidades fits sintetico"; fig_fits_file = plt.figure(title); plt.title(title); im_fits_file = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.00001))
@@ -806,7 +782,7 @@ class OptimizacionParametrosGrillados:
 
 			# Guardar gráfico final
 			fig_convergence.write_image(
-				f"/disk2/stephan/optim_con_sz114/optim_sz114_v7/{TITLE_PLOT_RESULT}"
+				f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_PLOT_RESULT}"
 			)
 
 		tiempo_total_opti = time.time() - start_time

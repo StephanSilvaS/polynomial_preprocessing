@@ -10,6 +10,7 @@ from pyralysis.convolution import PSWF1
 import astropy.units as unit
 from astropy.coordinates import Angle
 import random
+import time
 
 
 class PreprocesamientoDatosAGrillar:
@@ -54,6 +55,8 @@ class PreprocesamientoDatosAGrillar:
 		:param gridder_config: Configuración opcional para el gridder. Por defecto usa la configuración estándar.
 		:return: np.ndarray con los datos gridded.
 		"""
+		start_time_grid = time.time()
+
 		# Cargar el archivo MS
 		ms_data = DaskMS(input_name=self.ms_path)
 		dataset = ms_data.read(filter_flag_column=False, calculate_psf=False)
@@ -176,5 +179,7 @@ class PreprocesamientoDatosAGrillar:
 		err = np.random.normal(0, sigma)
 		err = np.where(gridded_weights == 0, 0, err)
 		gridded_visibilities += err
+
+		print("El tiempo de ejecución del gridding de conv. fue de: ", time.time() - start_time_grid)
 
 		return gridded_visibilities, gridded_weights, dx, u, v
