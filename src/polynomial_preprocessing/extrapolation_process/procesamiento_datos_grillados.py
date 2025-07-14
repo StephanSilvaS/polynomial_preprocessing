@@ -4,6 +4,7 @@ from numba import jit, prange
 from astropy.coordinates import Angle
 import cupy as cp
 import numpy as np
+import math
 import multiprocessing as mp
 from astropy.wcs import WCS
 from matplotlib.colors import Normalize
@@ -137,6 +138,86 @@ class ProcesamientoDatosGrillados:
 
 		return fits_data
 
+	def porcentaje_plano_lleno(self):
+		gridded_visibilities, _, _, _, _ = self.grid_data()
+
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		fits_header, _, fits_data, _, _ = interferometric_data.fits_header_info()
+
+		visibilidades = gridded_visibilities[0]
+
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		title = "Visibility model original"; fig_vis_original = plt.figure(title); plt.title(title); im_vis_original = plt.imshow(np.log(np.absolute(gridded_visibilities[0]) + 0.00001))
+		plt.colorbar(im_vis_original)
+		plt.savefig(f"/disk2/stephan/fits_visibilidades/{f"visibilidades_orig_{object_name}.png"}")
+
+		print("visibilidades: ", visibilidades)
+
+		print("visibilidades.size: ", visibilidades.size)
+
+		# Calcula la cantidad total de elementos
+		total_elementos = visibilidades.size
+		
+		# Crea una máscara booleana para detectar elementos diferentes a 0.+0.j
+		elementos_no_cero = visibilidades != 0.0 + 0.0j
+		
+		# Cuenta cuántos elementos son diferentes de cero
+		cantidad_no_ceros = np.count_nonzero(elementos_no_cero)
+
+		print("cantidad_no_ceros: ", cantidad_no_ceros)
+		
+		# Calcula el porcentaje
+		porcentaje = (cantidad_no_ceros / total_elementos) * 100
+
+		print(f"Porcentaje de elementos distintos de cero: {porcentaje:.4f}%")
+		
+		return porcentaje
+	
+	def porcentaje_no_ceros(self):
+		
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		fits_header, _, fits_data, _, _ = interferometric_data.fits_header_info()
+
+		if 'OBJECT' in fits_header:
+			object_name = fits_header['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		TITLE_VISIBILITIES_FITS = f"{object_name}_fits_file_visibilities"
+		TITLE_IMAGE_FITS = f"{object_name}_fits_file_image"
+
+		visibility_model_fits = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(fits_data)))
+
+		print("visibility_model_fits: ", visibility_model_fits)
+		
+		# Calcula la cantidad total de elementos
+		total_elementos = visibility_model_fits.size
+		
+		# Crea una máscara booleana para detectar elementos diferentes a 0.+0.j
+		elementos_no_cero = visibility_model_fits != 0.0 + 0.0j
+		
+		# Cuenta cuántos elementos son diferentes de cero
+		cantidad_no_ceros = np.count_nonzero(elementos_no_cero)
+
+		print("cantidad_no_ceros: ", cantidad_no_ceros)
+		
+		# Calcula el porcentaje
+		porcentaje = (cantidad_no_ceros / total_elementos) * 100
+
+		print(f"Porcentaje de elementos distintos de cero: {porcentaje:.4f}%")
+		
+		return porcentaje
+
 
 	def convolutional_gridding(self):
 
@@ -177,7 +258,7 @@ class ProcesamientoDatosGrillados:
 			object_name = "no_object_name"
 			print("El atributo OBJECT no se encuentra en el header.")
 
-		fits.writeto(f"/disk2/stephan/convolutional_gridding/convolutional_gridding_{object_name}.fits", np.real(gc_image_model), header, overwrite=True)
+		fits.writeto(f"/disk2/stephan/convolutional_gridding_kernel_5/convolutional_gridding_kernel_5_{object_name}.fits", np.real(gc_image_model), header, overwrite=True)
 
 		if self.plots == True:
 			title="Gridding de Convolucion + NCG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(gc_image_model))
@@ -198,6 +279,45 @@ class ProcesamientoDatosGrillados:
 		
 		return gc_image_model, visibility_model
 
+	@staticmethod
+	def create_mask(grid_shape, radius):
+		"""
+		Crea un arreglo de máscara basado en un filtro circular.
+
+		Parameters:
+		- grid_shape: tuple, las dimensiones de la grilla (rows, cols).
+		- radius: float, el radio del círculo.
+
+		Returns:
+		- mask: numpy.ndarray, una matriz booleana donde True indica fuera del círculo y False dentro.
+		"""
+		# Crear coordenadas de la grilla
+		rows, cols = grid_shape
+		y, x = np.ogrid[:rows, :cols]
+
+		# Calcular el centro de la grilla
+		center_row, center_col = rows // 2, cols // 2
+
+		# Calcular la distancia de cada punto al centro
+		distance_from_center = np.sqrt((x - center_col) ** 2 + (y - center_row) ** 2)
+
+		# Crear la máscara: True para fuera del círculo, False dentro
+		mask = distance_from_center > radius
+		return mask
+
+	def mse(self, img_final, dim_grilla, radio):
+		bool_arreglo = self.create_mask(dim_grilla, radio)
+		B = img_final * bool_arreglo
+		mse = np.std(B) ** 2
+		print(mse)
+		return mse
+
+	def psnr(self, dim_grilla, radio):
+		interferometric_data = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path=self.fits_path,
+																							   ms_path=self.ms_path)
+		_, _, fits_data, _, _ = interferometric_data.fits_header_info()
+		psnr_result = 10 * math.log10(( np.max(fits_data) ** 2 ) / self.mse(fits_data, (dim_grilla, dim_grilla), radio))
+		return psnr_result  # comentary mse need to be taken outside the object
 
 	def grid_data(self):
 
@@ -239,7 +359,7 @@ class ProcesamientoDatosGrillados:
 
 		title = "Visibility fits original"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.000001))
 		plt.colorbar(im)
-		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_VISIBILITIES_FITS}.png")
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales_kernel_5/{TITLE_VISIBILITIES_FITS}.png")
 
 		# Supongo que ya tienes `fits_data` cargado como arreglo 2D
 		title = f"Imagen FITS de {object_name}"
@@ -257,7 +377,7 @@ class ProcesamientoDatosGrillados:
 		plt.tight_layout()
 
 		# Guardar figura
-		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_IMAGE_FITS}.png", dpi=300, bbox_inches='tight')  # <- ESTA ES LA LÍNEA IMPORTANTE
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales_kernel_5/{TITLE_IMAGE_FITS}.png", dpi=300, bbox_inches='tight')  # <- ESTA ES LA LÍNEA IMPORTANTE
 
 		plt.show()
 
@@ -281,7 +401,7 @@ class ProcesamientoDatosGrillados:
 
 		title = "Visibility fits original"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.000001))
 		plt.colorbar(im)
-		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_VISIBILITIES_FITS}.png")
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales_kernel_5/{TITLE_VISIBILITIES_FITS}.png")
 
 		# Supongo que ya tienes `fits_data` cargado como arreglo 2D
 		title = f"Imagen FITS de {object_name}"
@@ -299,7 +419,7 @@ class ProcesamientoDatosGrillados:
 		plt.tight_layout()
 
 		# Guardar figura
-		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/{TITLE_IMAGE_FITS}.png", dpi=300, bbox_inches='tight')  # <- ESTA ES LA LÍNEA IMPORTANTE
+		plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales_kernel_5/{TITLE_IMAGE_FITS}.png", dpi=300, bbox_inches='tight')  # <- ESTA ES LA LÍNEA IMPORTANTE
 
 		plt.show()
 
@@ -336,10 +456,10 @@ class ProcesamientoDatosGrillados:
 
 		title = "Visibility fits original + CG"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(gridded_visibility_model_cg) + 0.000001))
 		plt.colorbar(im)
-		plt.savefig(f"/disk2/stephan/optim_sz114_con_param_b_v3/{"vis_gridded_image_CG_{object_name}"}.png")
+		plt.savefig(f"/disk2/stephan/optim_sz114_con_param_b_v3/{f"vis_gridded_image_CG_{object_name}"}.png")
 
 		#TERMINAR DE ARREGLAR FUNCION
-		fits.writeto(f"/disk2/stephan/output_oficiales/AS205/{f"imagen_orig_griddeada_con_CG"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
+		fits.writeto(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{f"imagen_orig_griddeada_con_CG"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
 
 	def gridded_data_processing(self, gridded_visibilities, gridded_weights, pixel_size, grid_u, grid_v):
 
@@ -668,18 +788,18 @@ class ProcesamientoDatosGrillados:
 			
 			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 			plt.colorbar(im)
-			plt.savefig(f"/disk2/stephan/output_oficiales/AS205/{TITLE_VISIBILITIES_RESULT_PNG}")
+			plt.savefig(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{TITLE_VISIBILITIES_RESULT_PNG}")
 
 			title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 			plt.colorbar(im)
-			plt.savefig(f"/disk2/stephan/output_oficiales/AS205/{TITLE_WEIGHTS_RESULT_PNG}")
+			plt.savefig(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{TITLE_WEIGHTS_RESULT_PNG}")
 
 
 			# Guardar archivos
-			np.savez(f"/disk2/stephan/output_oficiales/AS205/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
-			np.savez(f"/disk2/stephan/output_oficiales/AS205/{TITLE_WEIGHTS_RESULT}", weights_model)
-			fits.writeto(f"/disk2/stephan/output_oficiales/AS205/{TITLE_DIRTY_IMAGE_FITS}", image_model, fits_header, overwrite=True)
-			fits.writeto(f"/disk2/stephan/output_oficiales/AS205/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image), fits_header, overwrite=True)
+			np.savez(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
+			np.savez(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{TITLE_WEIGHTS_RESULT}", weights_model)
+			fits.writeto(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{TITLE_DIRTY_IMAGE_FITS}", image_model, fits_header, overwrite=True)
+			fits.writeto(f"/disk2/stephan/output_oficiales_kernel_5/HD163296/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image), fits_header, overwrite=True)
 
 		return image_model, visibilities_model, weights_model, u_target, v_target, np.real(reconstructed_image), np.absolute(visibility_model_cg)
 
@@ -957,7 +1077,49 @@ class ProcesamientoDatosGrillados:
 	@staticmethod
 	def dot(weights,x,y):
 		return(np.sum((x*weights*np.conjugate(y))))
-	
+
+
+	def generar_imagen_residuo(self, imagen_gridding, imagen_extrapolada):
+		"""
+		Calcula la imagen residuo entre una imagen obtenida por gridding convolucional y una imagen extrapolada.
+
+		Parámetros:
+		- imagen_gridding: np.ndarray, imagen obtenida mediante gridding (por ejemplo, iFFT de datos gridded)
+		- imagen_extrapolada: np.ndarray, imagen extrapolada mediante modelo (por ejemplo, polinomios o HMC)
+
+		Retorna:
+		- residuo: np.ndarray, diferencia punto a punto (residuo)
+		"""
+
+		interferometric_data_grid = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path = imagen_gridding,
+																							   ms_path=self.ms_path)
+		fits_header_grid, _, imagen_grid, _, _ = interferometric_data_grid.fits_header_info()
+
+		interferometric_data_extrapolada = preprocesamiento_datos_a_grillar.PreprocesamientoDatosAGrillar(fits_path = imagen_extrapolada,
+																							   ms_path=self.ms_path)
+		fits_header_extra, _, imagen_extra, _, _ = interferometric_data_extrapolada.fits_header_info()
+
+		if imagen_grid.shape != imagen_extra.shape:
+			raise ValueError("Las imágenes deben tener la misma forma para calcular el residuo.")
+
+		residuo = imagen_grid - imagen_extra
+
+		# Buscar el atributo OBJECT en el header
+		if 'OBJECT' in fits_header_grid:
+			object_name = fits_header_grid['OBJECT']
+			print(f"El objeto en el archivo FITS es: {object_name}")
+		else:
+			object_name = "no_object_name"
+			print("El atributo OBJECT no se encuentra en el header.")
+
+		title=f"Imagen residual {object_name}"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.real(residuo))
+		plt.colorbar(im)
+
+
+		fits.writeto(f"/disk2/stephan/imagenes_residuo/imagen_residuo_{object_name}.fits", np.real(residuo), fits_header_extra, overwrite=True)
+
+		return residuo
+
 	@staticmethod
 	def dot2x2(weights,matrix,pol,chunk_data):
 		weights = cp.array(weights)

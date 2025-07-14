@@ -128,6 +128,8 @@ class OptimizacionParametrosGrillados:
 		print(mse)
 		return mse
 	
+	'''
+	
 	# img1, img2: dim(M,M)
 	# img1,img2: real!!!! comentary: do not work for complex 
 	# return mean quadratic diference
@@ -136,7 +138,7 @@ class OptimizacionParametrosGrillados:
 		N1, N2 = img1.shape
 		err = np.sum((img1 - img2)**2)/(N1*N2)
 		return err
-
+	'''
 	@staticmethod
 	def calcular_rmse(visibilidades_observadas, visibilidades_modelo):
 		"""
@@ -188,15 +190,15 @@ class OptimizacionParametrosGrillados:
 
 
 
-	def psnr(self, img_ini, img_fin):
-		return 20*math.log10(np.max(np.max(img_fin))/self.mse(img_ini, img_fin))
+	#def psnr(self, img_ini, img_fin):
+		#return 20*math.log10(np.max(np.max(img_fin))/self.mse(img_ini, img_fin))
 
 	# Para minimizar se debe colocar un signo menos
-	"""
+
 	def psnr(self, img_fin):
 		psnr_result = 20 * math.log10(np.max(np.max(img_fin)) / self.mse(img_fin, (self.image_size, self.image_size), 47))
 		return psnr_result  # comentary mse need to be taken outside the object
-	"""
+
 	
 	
 	@staticmethod
@@ -596,21 +598,21 @@ class OptimizacionParametrosGrillados:
 			if self.verbose == True:
 				title = f"Visibility {object_name} model (dirty) (division sigma: " + f"{division:.2f}" + " num poly: " + str(S) + ")"; fig = plt.figure(title); plt.title(title); im_dirty = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 				plt.colorbar(im_dirty)
-				plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_VISIBILITIES_RESULT_PNG}")
+				plt.savefig(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_VISIBILITIES_RESULT_PNG}")
 
 				title = "Visibilidades modelo reconstruido"; figure_vis_recons = plt.figure(title); plt.title(title); im_recons = plt.imshow(np.log(np.absolute(visibility_model) + 0.00001))
 				plt.colorbar(im_recons)
-				plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_RECONSTRUCTED_VISIBILITIES_PNG}")
+				plt.savefig(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_RECONSTRUCTED_VISIBILITIES_PNG}")
 
 				title = f"Weights {object_name} model (division sigma: " + f"{division:.2f}" + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 				plt.colorbar(im)
-				plt.savefig(f"/disk2/stephan/output_oficiales/{TITLE_WEIGHTS_RESULT_PNG}")
+				plt.savefig(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_WEIGHTS_RESULT_PNG}")
 				plt.close('all')
 
 				# Guardar archivos
-				np.savez(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
-				fits.writeto(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_DIRTY_IMAGE_FITS}", image_model, header, overwrite=True)
-				fits.writeto(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image_cg), header, overwrite=True)
+				np.savez(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_VISIBILITIES_RESULT}", visibilities_model)
+				fits.writeto(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_DIRTY_IMAGE_FITS}", image_model, header, overwrite=True)
+				fits.writeto(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_RECONSTRUCTED_IMAGE_FITS}", np.real(reconstructed_image_cg), header, overwrite=True)
 
 			if self.plots == True:
 				title = f"Visibility {object_name} model (dirty) (division sigma: " + f"{division:.2f}" + " num poly: " + str(S) + ")"; fig = plt.figure(title); plt.title(title); im_dirty = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
@@ -684,7 +686,7 @@ class OptimizacionParametrosGrillados:
 		def save_study_callback(study, trial):
 			try:
 				study.trials_dataframe().to_csv(
-					"/disk2/stephan/optim_de_param_datasets/optim_hd142/study_trials_backup.csv",
+					"/disk2/stephan/opti_kernel_5_grid/opti_hd142/study_trials_backup.csv",
 					index=False
 				)
 			except Exception as e:
@@ -727,17 +729,17 @@ class OptimizacionParametrosGrillados:
 
 			title = "Visibilidades fits sintetico"; fig_fits_file = plt.figure(title); plt.title(title); im_fits_file = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.00001))
 			plt.colorbar(im_fits_file)
-			plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_VISIBILITIES_FITS}.png")
+			plt.savefig(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_VISIBILITIES_FITS}.png")
 
 			title = "Visibility model original"; fig_vis_original = plt.figure(title); plt.title(title); im_vis_original = plt.imshow(np.log(np.absolute(self.gridded_visibilities[0]) + 0.00001))
 			plt.colorbar(im_vis_original)
-			plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{f"visibilidades_orig_{object_name}.png"}")
+			plt.savefig(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{f"visibilidades_orig_{object_name}.png"}")
 
 			title=f"Imagen reconstruida de {object_name} griddeado orig + CG"; fig=plt.figure(title); plt.title(title); im=plt.imshow(np.log(np.absolute(gridded_visibility_model_cg) + 0.00001)) 
 			plt.colorbar(im)
-			plt.savefig(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{f"vis_imagen_griddeada_orig_CG_{object_name}.png"}")
+			plt.savefig(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{f"vis_imagen_griddeada_orig_CG_{object_name}.png"}")
 
-			fits.writeto(f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{f"imagen_griddeada_original_CG_{object_name}.fits"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
+			fits.writeto(f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{f"imagen_griddeada_original_CG_{object_name}.fits"}", np.real(gridded_reconstructed_image), fits_header, overwrite=True)
 
 		if self.plots == True:
 			title = "Visibilidades fits sintetico"; fig_fits_file = plt.figure(title); plt.title(title); im_fits_file = plt.imshow(np.log(np.absolute(visibility_model_fits) + 0.00001))
@@ -782,7 +784,7 @@ class OptimizacionParametrosGrillados:
 
 			# Guardar gráfico final
 			fig_convergence.write_image(
-				f"/disk2/stephan/optim_de_param_datasets/optim_hd142/{TITLE_PLOT_RESULT}"
+				f"/disk2/stephan/opti_kernel_5_grid/opti_hd142/{TITLE_PLOT_RESULT}"
 			)
 
 		tiempo_total_opti = time.time() - start_time

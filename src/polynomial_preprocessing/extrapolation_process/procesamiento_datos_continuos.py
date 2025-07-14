@@ -107,6 +107,7 @@ class ProcesamientoDatosContinuos:
 
 		print("visibilidades dim. MS: ", visibilities.shape)
 
+
 		########################################## Cargar archivo de entrada Version MS
 		# Eliminamos la dimension extra
 		# u_ind, v_ind = np.nonzero(visibilities[0])
@@ -254,6 +255,7 @@ class ProcesamientoDatosContinuos:
 
 			title = f"Visibility {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(np.log(np.absolute(visibilities_model) + 0.00001))
 			plt.colorbar(im)
+			plt.savefig(f"/disk2/stephan/imagenes_visibilidades_finales/continuos.png")
 
 			title = f"Weights {object_name} model (division sigma: " + str(division) + ")"; fig = plt.figure(title); plt.title(title); im = plt.imshow(weights_model)
 			plt.colorbar(im)

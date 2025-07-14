@@ -126,7 +126,7 @@ class PreprocesamientoDatosAGrillar:
 
 		robust.apply()
 
-		ckernel = PSWF1(size=3, cellsize=dx, oversampling_factor=1) # Variar oversampling implica variar dims. array de pesos.
+		ckernel = PSWF1(size=5, cellsize=dx, oversampling_factor=1) # Variar oversampling implica variar dims. array de pesos.
 
 		dirty_mapper = DirtyMapper(
 			input_data=dataset,
